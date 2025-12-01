@@ -1,10 +1,10 @@
 import { View, StyleSheet } from "react-native";
-import Home from "../pages/home/home";
+import Events from "../pages/events/events";
 
-export default function Index() {
+export default function EventsScreen() {
     return (
         <View style={styles.screen}>
-            <Home />
+            <Events />
         </View>
     );
 }
