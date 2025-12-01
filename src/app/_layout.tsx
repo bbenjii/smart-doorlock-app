@@ -2,28 +2,32 @@ import { Stack } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StyleSheet, View } from "react-native";
 import Navbar from "../components/navbar/navbar";
+import {BleProvider} from "@/src/context/ble-context";
 
 export default function RootLayout() {
     return (
-        <SafeAreaView style={styles.shell}>
-            <View style={styles.body}>
-                <Stack
-                    screenOptions={{
-                        headerShown: false,
-                        animation: "fade",
-                        animationDuration: 120,
-                        contentStyle: styles.content,
-                    }}
-                >
-                    <Stack.Screen name="index" />
-                    <Stack.Screen name="events" />
-                    <Stack.Screen name="sensors" />
-                    <Stack.Screen name="settings" />
-                    <Stack.Screen name="(tabs)" />
-                </Stack>
-            </View>
-            <Navbar />
-        </SafeAreaView>
+        <BleProvider>
+            <SafeAreaView style={styles.shell}>
+                <View style={styles.body}>
+                    <Stack
+                        screenOptions={{
+                            headerShown: false,
+                            animation: "fade",
+                            animationDuration: 120,
+                            contentStyle: styles.content,
+                        }}
+                    >
+                        <Stack.Screen name="index" />
+                        <Stack.Screen name="events" />
+                        <Stack.Screen name="sensors" />
+                        <Stack.Screen name="settings" />
+                        <Stack.Screen name="(tabs)" />
+                    </Stack>
+                </View>
+                <Navbar />
+            </SafeAreaView>
+        </BleProvider>
+        
     );
 }
 

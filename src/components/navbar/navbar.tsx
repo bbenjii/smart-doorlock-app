@@ -28,6 +28,11 @@ const Navbar = () => {
             name: "Settings",
             imgSrc: require("../../assets/images/settings.png"),
             path: "/settings",
+        },
+        {
+            name: "Testing",
+            imgSrc: require("../../assets/images/house.png"),
+            path: "/testing",
         }]
 
     const handleNavigate = (path?: string) => {
