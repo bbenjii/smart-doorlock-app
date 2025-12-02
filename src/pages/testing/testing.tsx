@@ -1,5 +1,4 @@
 import React, {useEffect, useRef, useState, useCallback} from "react";
-import useHandleLocationPermission from "@/src/hooks/useLocationPermission";
 import {useFocusEffect} from "@react-navigation/native";
 
 import {
@@ -14,27 +13,71 @@ import {
 } from "react-native";
 
 import {useBLE} from "@/src/context/ble-context";
+import {activateKeepAwakeAsync} from "expo-keep-awake";
+
 
 export default function Testing() {
-    const [isLocked, setIsLocked] = useState(true);
-    const [isCallActive, setIsCallActive] = useState(false);
-    const [lastActivities, setLastActivities] = useState([]); // placeholder if you later make this dynamic
-
     const {
         allDevices,
         connectedDevice,
         connectToDevice,
-        color,
+        disconnectFromDevice,
         requestPermissions,
         scanForPeripherals,
-        resetDevices,
         stopScan,
+        sendCommand,
+        readLockState,
+        readMacAddress,
     } = useBLE();
+    
+    const [isLocked, setIsLocked] = useState(readLockState() === "LOCKED");
+    const [isCallActive, setIsCallActive] = useState(false);
 
 
-    const toggleLock = () => setIsLocked((prev) => !prev);
+    const httpLock = () => {
+        return fetch("https://bae972a4367e.ngrok-free.app/lock", {
+            method: "POST",
+        });
+    };
+
+    const httpUnlock = () => {
+        return fetch("https://bae972a4367e.ngrok-free.app/unlock", {
+            method: "POST",
+        });
+    };
+
+    const httpGetLockStatus = () => {
+        return fetch("https://bae972a4367e.ngrok-free.app/status", {
+            method: "GET",
+        })
+            .then((response) => response.json())
+            .then((data) => {
+                const status = data?.status;
+                if (typeof status === "string") {
+                    setIsLocked(status === "LOCKED");
+                }
+                return data;
+            });
+    };
+    const toggleLock = () => {
+        const command = isLocked ? "UNLOCK" : "LOCK";
+        if (command === "LOCK") {
+            httpLock();
+        } else {
+            httpUnlock();
+        }
+        // sendCommand(command);
+    };
+
     const toggleCall = () => setIsCallActive((prev) => !prev);
 
+    useEffect(() => {
+        const interval = setInterval(() => {
+            httpGetLockStatus()
+        }, 1000);
+
+        return () => clearInterval(interval);
+    });
     useFocusEffect(
         useCallback(() => {
             let cancelled = false;
@@ -42,7 +85,6 @@ export default function Testing() {
             const start = async () => {
                 const ok = await requestPermissions();
                 if (!ok || cancelled) return;
-                // resetDevices();
                 scanForPeripherals();
             };
 
@@ -51,26 +93,35 @@ export default function Testing() {
             return () => {
                 cancelled = true;
                 stopScan();
-                // resetDevices();
             };
-        }, [requestPermissions, scanForPeripherals, stopScan, resetDevices])
+        }, [requestPermissions, scanForPeripherals, stopScan])
     );
 
     useEffect(() => {
-        console.log(connectedDevice)
-    }, []);
-    useEffect(() => {
-
-        // console.log(connectedDevice)
-    }, [connectedDevice]);
-
-
-    function deviceHasName(device: any) {
+        if (!connectedDevice) return;
+        readMacAddress().then((value) => {
+            console.log(`Connected to ${value}`);
+        });
         
-        return !["", null].includes(device.name) || !["", null].includes(device.localName);
+        // alert(macAddress)
+        const interval = setInterval(() => {
+            readLockState().then((value) => {
+                if (!value) return;
+                setIsLocked(value === "LOCKED");
+            });
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [connectedDevice]);
+    
+    function deviceHasName(device: any) {
+        const name = (device.name || "").trim();
+        const localName = (device.localName || "").trim();
+        return Boolean(name || localName);
     }
 
-
+    
+    
     return (
         <ScrollView style={{flex: 1, flexDirection: "column"}}>
             {/* Header */}
@@ -135,17 +186,20 @@ export default function Testing() {
                                         </Text>
                                     </View>
                                     <TouchableOpacity
-                                        onPress={() => connectToDevice(device)}
-                                        disabled={isConnected}
+                                        onPress={() =>
+                                            isConnected
+                                                ? disconnectFromDevice(device.id)
+                                                : connectToDevice(device)
+                                        }
                                         style={{
                                             paddingHorizontal: 12,
                                             paddingVertical: 8,
                                             borderRadius: 8,
-                                            backgroundColor: isConnected ? "#d4d4d8" : "#111827",
+                                            backgroundColor: isConnected ? "#ef4444" : "#111827",
                                         }}
                                     >
                                         <Text style={{color: "white", fontWeight: "600"}}>
-                                            {isConnected ? "Connected" : "Connect"}
+                                            {isConnected ? "Disconnect" : "Connect"}
                                         </Text>
                                     </TouchableOpacity>
                                 </View>
