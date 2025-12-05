@@ -13,9 +13,10 @@ import {
 } from "react-native";
 
 import {useBLE} from "@/src/context/ble-context";
-import {activateKeepAwakeAsync} from "expo-keep-awake";
 
+const base_url = "https://0dae5b628806.ngrok-free.app/";
 
+const DEVICE_ID = "smartlock_D0DB64A84320";
 export default function Testing() {
     const {
         allDevices,
@@ -25,31 +26,28 @@ export default function Testing() {
         requestPermissions,
         scanForPeripherals,
         stopScan,
-        sendCommand,
         readLockState,
         readMacAddress,
     } = useBLE();
-    
-    const [isLocked, setIsLocked] = useState(readLockState() === "LOCKED");
+
+    const [isLocked, setIsLocked] = useState(false);
     const [isCallActive, setIsCallActive] = useState(false);
 
+    const wsRef = useRef<WebSocket | null>(null);
 
     const httpLock = () => {
-        return fetch("https://bae972a4367e.ngrok-free.app/lock", {
-            method: "POST",
-        });
+        const url = `${base_url}send-command/${DEVICE_ID}/LOCK`;
+        return fetch(url, {method: "POST"});
     };
 
     const httpUnlock = () => {
-        return fetch("https://bae972a4367e.ngrok-free.app/unlock", {
-            method: "POST",
-        });
+        const url = `${base_url}send-command/${DEVICE_ID}/UNLOCK`;
+        return fetch(url, {method: "POST"});
     };
-
+    
     const httpGetLockStatus = () => {
-        return fetch("https://bae972a4367e.ngrok-free.app/status", {
-            method: "GET",
-        })
+        const url = `${base_url}status/${DEVICE_ID}`;
+        return fetch(url, {method: "GET"})
             .then((response) => response.json())
             .then((data) => {
                 const status = data?.status;
@@ -57,8 +55,12 @@ export default function Testing() {
                     setIsLocked(status === "LOCKED");
                 }
                 return data;
+            })
+            .catch((e) => {
+                console.log("Status fetch error:", e);
             });
     };
+
     const toggleLock = () => {
         const command = isLocked ? "UNLOCK" : "LOCK";
         if (command === "LOCK") {
@@ -66,18 +68,78 @@ export default function Testing() {
         } else {
             httpUnlock();
         }
-        // sendCommand(command);
     };
 
     const toggleCall = () => setIsCallActive((prev) => !prev);
 
-    useEffect(() => {
-        const interval = setInterval(() => {
-            httpGetLockStatus()
-        }, 1000);
+    // -------- WebSocket for realtime status from server --------
 
-        return () => clearInterval(interval);
-    });
+    useFocusEffect(
+        useCallback(() => {
+            // Derive WS URL from base_url
+            const wsUrl = (base_url || "")
+                .replace(/^http:\/\//, "ws://")
+                .replace(/^https:\/\//, "wss://") + "ws/client";
+
+            console.log("Connecting WS client to:", wsUrl);
+
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
+
+            const ws = new WebSocket(wsUrl);
+            wsRef.current = ws;
+
+            ws.onopen = () => {
+                console.log("Client WS connected");
+                // Subscribe to this device's status feed
+                const subMsg = JSON.stringify({
+                    type: "subscribe",
+                    deviceId: DEVICE_ID,
+                });
+                ws.send(subMsg);
+
+                // Optionally fetch status once via HTTP as initial value
+                httpGetLockStatus();
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    // Expect messages like:
+                    // { type: "status", deviceId: "...", status: "LOCKED" }
+                    if (data.type === "status" && data.deviceId === DEVICE_ID) {
+                        if (typeof data.status === "string") {
+                            setIsLocked(data.status === "LOCKED");
+                        }
+                    }
+                } catch (e) {
+                    console.log("WS message parse error:", e);
+                }
+            };
+
+            ws.onerror = (event) => {
+                console.log("WS error:", event);
+            };
+
+            ws.onclose = (event) => {
+                console.log("Client WS closed:", event?.code, event?.reason);
+                wsRef.current = null;
+            };
+
+            return () => {
+                console.log("Cleaning up WS");
+                if (wsRef.current) {
+                    wsRef.current.close();
+                    wsRef.current = null;
+                }
+            };
+        }, [])
+    );
+
+    // -------- BLE scanning (local mode, unchanged) --------
+
     useFocusEffect(
         useCallback(() => {
             let cancelled = false;
@@ -97,13 +159,13 @@ export default function Testing() {
         }, [requestPermissions, scanForPeripherals, stopScan])
     );
 
+    // When connected via BLE, keep local lock state updated (optional)
     useEffect(() => {
         if (!connectedDevice) return;
         readMacAddress().then((value) => {
-            console.log(`Connected to ${value}`);
+            console.log(`Connected BLE to ${value}`);
         });
-        
-        // alert(macAddress)
+
         const interval = setInterval(() => {
             readLockState().then((value) => {
                 if (!value) return;
@@ -112,16 +174,18 @@ export default function Testing() {
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [connectedDevice]);
-    
+    }, [connectedDevice, readLockState, readMacAddress]);
+
     function deviceHasName(device: any) {
         const name = (device.name || "").trim();
         const localName = (device.localName || "").trim();
         return Boolean(name || localName);
     }
 
-    
-    
+    useEffect(() => {
+    }, []);
+    // -------- UI (unchanged) --------
+
     return (
         <ScrollView style={{flex: 1, flexDirection: "column"}}>
             {/* Header */}
@@ -140,15 +204,9 @@ export default function Testing() {
                 <Text style={{color: "#6b7280"}}>Helloll</Text>
             </View>
 
-            {/* Quick Actions + Status Cards */}
             <View style={{padding: 16, flex: 1}}>
-                {/* Quick Actions (2-column grid) */}
-                <View
-                    style={{
-                        flexDirection: "row",
-                        marginBottom: 16,
-                    }}
-                >
+                {/* Quick Actions */}
+                <View style={{flexDirection: "row", marginBottom: 16}}>
                     <LockButton locked={isLocked} onLockCallback={toggleLock}/>
                     <StartCallButton callActive={isCallActive} onStartCallCallback={toggleCall}/>
                 </View>
@@ -161,53 +219,54 @@ export default function Testing() {
                     {allDevices.length === 0 ? (
                         <Text style={{color: "#6b7280"}}>No devices found yet.</Text>
                     ) : (
-                        allDevices.filter((device) => deviceHasName(device)).map((device) => {
-                            const isConnected = connectedDevice?.id === device.id;
-                            return (
-                                <View
-                                    key={device.id}
-                                    style={{
-                                        padding: 12,
-                                        marginBottom: 8,
-                                        borderWidth: 1,
-                                        borderColor: "#e4e4e7",
-                                        borderRadius: 10,
-                                        flexDirection: "row",
-                                        alignItems: "center",
-                                        justifyContent: "space-between",
-                                    }}
-                                >
-                                    <View style={{flexShrink: 1}}>
-                                        <Text style={{fontWeight: "600"}}>
-                                            {device.name || device.localName || "Unnamed device"}
-                                        </Text>
-                                        <Text style={{color: "#6b7280"}} numberOfLines={1}>
-                                            {device.id}
-                                        </Text>
-                                    </View>
-                                    <TouchableOpacity
-                                        onPress={() =>
-                                            isConnected
-                                                ? disconnectFromDevice(device.id)
-                                                : connectToDevice(device)
-                                        }
+                        allDevices
+                            .filter((device) => deviceHasName(device))
+                            .map((device) => {
+                                const isConnected = connectedDevice?.id === device.id;
+                                return (
+                                    <View
+                                        key={device.id}
                                         style={{
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 8,
-                                            borderRadius: 8,
-                                            backgroundColor: isConnected ? "#ef4444" : "#111827",
+                                            padding: 12,
+                                            marginBottom: 8,
+                                            borderWidth: 1,
+                                            borderColor: "#e4e4e7",
+                                            borderRadius: 10,
+                                            flexDirection: "row",
+                                            alignItems: "center",
+                                            justifyContent: "space-between",
                                         }}
                                     >
-                                        <Text style={{color: "white", fontWeight: "600"}}>
-                                            {isConnected ? "Disconnect" : "Connect"}
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-                            );
-                        })
+                                        <View style={{flexShrink: 1}}>
+                                            <Text style={{fontWeight: "600"}}>
+                                                {device.name || device.localName || "Unnamed device"}
+                                            </Text>
+                                            <Text style={{color: "#6b7280"}} numberOfLines={1}>
+                                                {device.id}
+                                            </Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            onPress={() =>
+                                                isConnected
+                                                    ? disconnectFromDevice(device.id)
+                                                    : connectToDevice(device)
+                                            }
+                                            style={{
+                                                paddingHorizontal: 12,
+                                                paddingVertical: 8,
+                                                borderRadius: 8,
+                                                backgroundColor: isConnected ? "#ef4444" : "#111827",
+                                            }}
+                                        >
+                                            <Text style={{color: "white", fontWeight: "600"}}>
+                                                {isConnected ? "Disconnect" : "Connect"}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                );
+                            })
                     )}
                 </View>
-
             </View>
         </ScrollView>
     );

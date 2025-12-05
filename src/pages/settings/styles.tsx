@@ -146,6 +146,13 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
     },
+    buttonPrimary: {
+        backgroundColor: "#2563eb",
+    },
+    buttonPrimaryText: {
+        color: "#fff",
+        fontWeight: "700",
+    },
     buttonOutline: {
         borderWidth: 1,
         borderColor: "#2563eb",
@@ -183,6 +190,23 @@ const styles = StyleSheet.create({
     systemInfo: {
         backgroundColor: "#f9fafb",
         gap: 8,
+    },
+    inputGroup: {
+        gap: 6,
+    },
+    inputLabel: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#374151",
+    },
+    input: {
+        borderWidth: 1,
+        borderColor: "#e5e7eb",
+        borderRadius: 10,
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        fontSize: 15,
+        color: "#111827",
     },
     circleIcon: {
         width: 32,

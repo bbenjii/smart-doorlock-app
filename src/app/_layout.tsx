@@ -3,9 +3,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { StyleSheet, View } from "react-native";
 import Navbar from "../components/navbar/navbar";
 import {BleProvider} from "@/src/context/ble-context";
+import {AppProvider} from "@/src/context/app-context";
 
 export default function RootLayout() {
     return (
+        <AppProvider>
         <BleProvider>
             <SafeAreaView style={styles.shell}>
                 <View style={styles.body}>
@@ -27,6 +29,7 @@ export default function RootLayout() {
                 <Navbar />
             </SafeAreaView>
         </BleProvider>
+        </AppProvider>
         
     );
 }

@@ -17,7 +17,15 @@ const COLOR_CHARACTERISTIC_UUID = "19b10001-e8f2-537e-4f6c-d104768a1217";
 const LOCK_STATE_CHARACTERISTIC_UUID = "12345678-1234-1234-1234-1234567890ad";
 const COMMAND_CHARACTERISTIC_UUID = "12345678-1234-1234-1234-1234567890ac";
 const MAC_ADDRESS_CHARACTERISTIC_UUID = "12345678-1234-1234-1234-1234567890ae";
-const bleManager = new BleManager();
+
+let bleManager: BleManager | null = null;
+
+try {
+    bleManager = new BleManager();
+} catch (error) {
+    bleManager = null;
+}
+
 
 function useBLEInternal() {
     const [allDevices, setAllDevices] = useState<Device[]>([]);
@@ -88,6 +96,11 @@ function useBLEInternal() {
     };
 
     const connectToDevice = async (device: Device) => {
+        if (!bleManager) {
+            console.log("BleManager unavailable");
+            return;
+        }
+
         try {
             const deviceConnection = await bleManager.connectToDevice(device.id);
             setConnectedDevice(deviceConnection);
@@ -101,6 +114,11 @@ function useBLEInternal() {
     };
 
     const disconnectFromDevice = async (deviceId?: string) => {
+        if (!bleManager) {
+            console.log("BleManager unavailable");
+            return;
+        }
+
         const targetId = deviceId || connectedDevice?.id;
         if (!targetId) return;
 
@@ -116,8 +134,13 @@ function useBLEInternal() {
     const isDuplicateDevice = (devices: Device[], nextDevice: Device) =>
         devices.findIndex((device) => nextDevice.id === device.id) > -1;
 
-    const scanForPeripherals = () =>
-        bleManager.startDeviceScan(null, null, (error, device) => {
+    const scanForPeripherals = () => {
+        if (!bleManager) {
+            console.log("BleManager unavailable");
+            return;
+        }
+
+        return bleManager.startDeviceScan(null, null, (error, device) => {
             if (error) {
                 console.log(error);
                 return;
@@ -137,6 +160,7 @@ function useBLEInternal() {
                 return prevState;
             });
         });
+    };
 
     const onDataUpdate = (
         error: BleError | null,
@@ -274,6 +298,11 @@ function useBLEInternal() {
     };
 
     const stopScan = () => {
+        if (!bleManager) {
+            console.log("BleManager unavailable");
+            return;
+        }
+
         bleManager.stopDeviceScan();
     };
 

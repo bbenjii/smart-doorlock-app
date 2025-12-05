@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from "react";
-import { Image, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import React, { useContext, useMemo, useState } from "react";
+import { Image, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
+import { AppContext } from "../../context/app-context";
+import { useRouter } from "expo-router";
 type SensorStatus = "active" | "inactive";
 type SensorType = "Lock" | "Motion" | "Camera" | "Contact";
 
@@ -79,6 +81,8 @@ const sensorsSeed: Sensor[] = [
 ];
 
 export default function Sensors() {
+    const { user } = useContext(AppContext);
+    const router = useRouter();
     const [sensors, setSensors] = useState<Sensor[]>(sensorsSeed);
 
     const stats = useMemo(() => {
@@ -95,6 +99,18 @@ export default function Sensors() {
             ),
         );
     };
+
+    if (!user) {
+        return (
+            <View style={[styles.screen, authStyles.container]}>
+                <Text style={authStyles.title}>You are not logged in</Text>
+                <Text style={authStyles.subtitle}>Log in from Settings to use the app.</Text>
+                <TouchableOpacity onPress={() => router.push("/settings")} style={authStyles.button}>
+                    <Text style={authStyles.buttonText}>Go to Settings</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     return (
         <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
@@ -184,3 +200,32 @@ export default function Sensors() {
     );
 }
 
+const authStyles = StyleSheet.create({
+    container: {
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+        rowGap: 12,
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: "700",
+        color: "#111827",
+    },
+    subtitle: {
+        fontSize: 14,
+        color: "#6b7280",
+        textAlign: "center",
+    },
+    button: {
+        marginTop: 4,
+        paddingVertical: 12,
+        paddingHorizontal: 18,
+        borderRadius: 10,
+        backgroundColor: "#111827",
+    },
+    buttonText: {
+        color: "#fff",
+        fontWeight: "700",
+    },
+});

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, {useCallback, useEffect, useRef, useState} from "react";
 import {
     View,
     Text,
@@ -8,16 +8,45 @@ import {
     useWindowDimensions,
     ScrollView,
     Animated,
+    StyleSheet,
 } from "react-native";
+import {AppContext} from "../../context/app-context";
+import {useContext} from "react";
+import {useRouter} from "expo-router";
+import {WebView} from "react-native-webview";
+import {useFocusEffect} from "@react-navigation/native";
+import {Platform} from 'react-native';
 
 export default function Home() {
-    const [isLocked, setIsLocked] = useState(true);
+    const {user, deviceId, httpLock, httpUnlock, isLocked} = useContext(AppContext);
+    const router = useRouter();
+    // const [isLocked, setIsLocked] = useState(false);
     const [isCallActive, setIsCallActive] = useState(false);
     const [lastActivities, setLastActivities] = useState([]); // placeholder if you later make this dynamic
 
-    const toggleLock = () => setIsLocked((prev) => !prev);
+    const toggleLock = () => isLocked ? httpUnlock() : httpLock();
     const toggleCall = () => setIsCallActive((prev) => !prev);
 
+    useEffect(() => {
+        // console.log("User:", user);
+        // console.log("Device ID:", deviceId);
+    }, []);
+
+    if (!user) {
+        return (
+            <View style={authStyles.container}>
+                <Text style={authStyles.title}>You are not logged in</Text>
+                <Text style={authStyles.subtitle}>Log in from Settings to use the app.</Text>
+                <TouchableOpacity
+                    onPress={() => router.push("/settings")}
+                    style={authStyles.button}
+                >
+                    <Text style={authStyles.buttonText}>Go to Settings</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
+    
     return (
         <ScrollView style={{ flex: 1, flexDirection: "column" }}>
             {/* Header */}
@@ -205,7 +234,24 @@ export default function Home() {
 const CameraFeed = ({ isCallActive }: { isCallActive: boolean }) => {
     const { width } = useWindowDimensions();
     const isLargeScreen = width > 800;
+    const {cameraBaseUrl, isWebBrowser} = useContext(AppContext);
+    const [source, setSource] = useState("");
+    const [webViewKey, setWebViewKey] = useState(0);
 
+    useFocusEffect(
+        useCallback(() => {
+            // Force WebView to refresh its connection every time the screen gains focus.
+            if (cameraBaseUrl) {
+                setSource(`${cameraBaseUrl}/stream?ts=${Date.now()}`);
+                setWebViewKey((prev) => prev + 1);
+            }
+            return () => {
+                setSource("");
+            };
+        }, [cameraBaseUrl])
+    );
+    
+    
     return (
         <View style={{ backgroundColor: "black" }}>
             <View
@@ -219,71 +265,29 @@ const CameraFeed = ({ isCallActive }: { isCallActive: boolean }) => {
                     maxWidth: isLargeScreen ? 900 : "100%",
                 }}
             >
-                {/* 16:9 aspect ratio wrapper */}
                 <View style={{ width: "100%", aspectRatio: 16 / 9 }}>
-                    <ImageBackground
-                        source={require("../../assets/images/camera-feed-test.png")}
-                        style={{ flex: 1 }}
-                        imageStyle={{ resizeMode: "cover" }}
-                    >
-                        {/* Live badge */}
-                        <LiveBadge />
-
-                        {/* Camera Controls Overlay (top-right) */}
-                        <View
-                            style={{
-                                position: "absolute",
-                                top: 12,
-                                right: 12,
-                                flexDirection: "row",
-                            }}
-                        >
-                            <OverlayIconButton
-                                icon={require("../../assets/images/camera.png")}
+                    {source ? (
+                        isWebBrowser ?
+                            <img
+                                src={source}
+                                style={{width: "100%", height: "100%", border: "none"}}
+                                // sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                             alt={"camera feed"}/>
+                            :
+                            <WebView
+                                key={webViewKey}
+                                source={{uri: source}}
+                                style={{flex: 1}}
+                                javaScriptEnabled
+                                domStorageEnabled
                             />
-                            <View style={{ width: 8 }} />
-                            <OverlayIconButton
-                                icon={require("../../assets/images/video.png")}
-                            />
-                        </View>
-
-                        {/* Call Active Overlay */}
-                        {isCallActive && (
-                            <View
-                                style={{
-                                    position: "absolute",
-                                    top: 0,
-                                    bottom: 0,
-                                    left: 0,
-                                    right: 0,
-                                    backgroundColor: "rgba(0,0,0,0.4)",
-                                    justifyContent: "center",
-                                    alignItems: "center",
-                                }}
-                            >
-                                <View style={{ alignItems: "center" }}>
-                                    <Image
-                                        source={require("../../assets/images/volume.png")}
-                                        style={{
-                                            width: 48,
-                                            height: 48,
-                                            marginBottom: 8,
-                                            tintColor: "white",
-                                        }}
-                                    />
-                                    <Text
-                                        style={{
-                                            color: "white",
-                                            fontSize: 16,
-                                            textAlign: "center",
-                                        }}
-                                    >
-                                        Two-way call active
-                                    </Text>
-                                </View>
-                            </View>
-                        )}
-                    </ImageBackground>
+                    ) : (
+                        <ImageBackground
+                            source={require("../../assets/images/camera-feed-test.png")}
+                            style={{flex: 1}}
+                            imageStyle={{resizeMode: "cover"}}
+                        />
+                    )}
                 </View>
             </View>
         </View>
@@ -495,3 +499,35 @@ const BadgeOutline = ({ children }: { children: React.ReactNode }) => {
         </View>
     );
 };
+
+const authStyles = StyleSheet.create({
+    container: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+        backgroundColor: "#fff",
+        rowGap: 12,
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: "700",
+        color: "#111827",
+    },
+    subtitle: {
+        fontSize: 14,
+        color: "#6b7280",
+        textAlign: "center",
+    },
+    button: {
+        marginTop: 4,
+        paddingVertical: 12,
+        paddingHorizontal: 18,
+        borderRadius: 10,
+        backgroundColor: "#111827",
+    },
+    buttonText: {
+        color: "#fff",
+        fontWeight: "700",
+    },
+});

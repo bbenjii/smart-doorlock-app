@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useContext, useMemo, useState } from "react";
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
+import { AppContext } from "../../context/app-context";
+import { useRouter } from "expo-router";
 type EventCategory = "access" | "motion" | "alert";
 
 type EventItem = {
@@ -97,11 +99,25 @@ const eventItems: EventItem[] = [
 
 export default function Events() {
     const [selectedFilter, setSelectedFilter] = useState<"all" | EventCategory>("all");
+    const { user } = useContext(AppContext);
+    const router = useRouter();
 
     const filteredEvents = useMemo(
         () => (selectedFilter === "all" ? eventItems : eventItems.filter((evt) => evt.category === selectedFilter)),
         [selectedFilter],
     );
+
+    if (!user) {
+        return (
+            <View style={[styles.screen, authStyles.container]}>
+                <Text style={authStyles.title}>You are not logged in</Text>
+                <Text style={authStyles.subtitle}>Log in from Settings to use the app.</Text>
+                <TouchableOpacity onPress={() => router.push("/settings")} style={authStyles.button}>
+                    <Text style={authStyles.buttonText}>Go to Settings</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     return (
         <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
@@ -163,3 +179,32 @@ export default function Events() {
     );
 }
 
+const authStyles = StyleSheet.create({
+    container: {
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+        rowGap: 12,
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: "700",
+        color: "#111827",
+    },
+    subtitle: {
+        fontSize: 14,
+        color: "#6b7280",
+        textAlign: "center",
+    },
+    button: {
+        marginTop: 4,
+        paddingVertical: 12,
+        paddingHorizontal: 18,
+        borderRadius: 10,
+        backgroundColor: "#111827",
+    },
+    buttonText: {
+        color: "#fff",
+        fontWeight: "700",
+    },
+});
