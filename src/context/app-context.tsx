@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useEffect, useRef, useState } from "react";
+import { createContext, ReactNode, useEffect, useRef, useState, useCallback } from "react";
 import { Toast } from "@/src/components/toast";
 import { AppStorage } from "@/src/hooks/useAppStorage";
 import { Platform } from "react-native";
@@ -12,6 +12,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const base_url = "http://192.168.2.208:8000/";
     const [isLocked, setIsLocked] = useState(false);
     const [toastVisible, setToastVisible] = useState(false);
+    const [isDeviceConnected, setIsDeviceConnected] = useState(false);
     const [toastContent, setToastContent] = useState<{
         title: string;
         message: string;
@@ -28,12 +29,25 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const wsRef = useRef<WebSocket | null>(null);
     const previousLockState = useRef<boolean | null>(null);
 
+    // NEW: reconnection state
+    const reconnectAttemptsRef = useRef(0);
+    const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const clearReconnectTimeout = () => {
+        if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+        }
+    };
+
     const httpLock = () => {
+        if (!deviceId) return;
         const url = `${base_url}send-command/${deviceId}/LOCK`;
         return fetch(url, { method: "POST" });
     };
 
     const httpUnlock = () => {
+        if (!deviceId) return;
         const url = `${base_url}send-command/${deviceId}/UNLOCK`;
         return fetch(url, { method: "POST" });
     };
@@ -46,6 +60,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             .then((response) => response.json())
             .then((data) => {
                 const status = data?.status;
+                console.log("Status:", data);
                 if (typeof status === "string") {
                     setIsLocked(status === "LOCKED");
                 }
@@ -88,9 +103,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setDeviceId(fallbackDeviceId);
     }, []);
 
-    // Single WebSocket lifecycle: only on app open + when deviceId changes
-    useEffect(() => {
-        if (!deviceId) return;
+    // ========== WebSocket connection + async reconnection ==========
+    const connectWebSocket = useCallback(() => {
+        if (!deviceId) {
+            console.log("WS: no deviceId, skipping connect");
+            return;
+        }
+
+        // If there is already an open or connecting socket, don't recreate
+        if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+            console.log("WS: already connected/connecting, skipping new connection");
+            return;
+        }
+
+        // Clear any scheduled reconnection attempt when we actively connect
+        clearReconnectTimeout();
 
         const wsUrl =
             (base_url || "")
@@ -98,32 +125,27 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                 .replace(/^https:\/\//, "wss://") + "ws/client";
 
         console.log("Connecting WS client to:", wsUrl);
-
-        // Close any existing socket before opening a new one
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
-        }
-
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
             console.log("Client WS connected");
+            setIsDeviceConnected(true);
+            reconnectAttemptsRef.current = 0; // reset backoff
+
             const subMsg = JSON.stringify({
                 type: "subscribe",
                 deviceId: deviceId,
             });
             ws.send(subMsg);
 
-            // Initial status fetch
             httpGetLockStatus();
         };
 
         ws.onmessage = (event) => {
             try {
+                console.log("WS message:", event.data);
                 const data = JSON.parse(event.data);
-                // { type: "status", deviceId: "...", status: "LOCKED" }
                 if (data.type === "status" && data.deviceId === deviceId) {
                     if (typeof data.status === "string") {
                         setIsLocked(data.status === "LOCKED");
@@ -134,30 +156,62 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             }
         };
 
+        const scheduleReconnect = () => {
+            setIsDeviceConnected(false);
+            wsRef.current = null;
+
+            const attempt = reconnectAttemptsRef.current;
+            const delay = Math.min(30000, 1000 * Math.pow(2, attempt)); // 1s, 2s, 4s, ... max 30s
+            reconnectAttemptsRef.current = attempt + 1;
+
+            console.log(`WS: scheduling reconnect in ${delay}ms (attempt ${attempt + 1})`);
+
+            clearReconnectTimeout();
+            reconnectTimeoutRef.current = setTimeout(() => {
+                // Only try if still no socket and we still have a deviceId
+                if (!wsRef.current && deviceId) {
+                    connectWebSocket();
+                }
+            }, delay);
+        };
+
         ws.onerror = (event) => {
             console.log("WS error:", event);
+            // In RN, onerror is followed by onclose, but we can be defensive:
+            scheduleReconnect();
         };
 
         ws.onclose = (event) => {
             console.log("Client WS closed:", event?.code, event?.reason);
-            if (wsRef.current === ws) {
-                wsRef.current = null;
-            }
+            scheduleReconnect();
         };
+    }, [base_url, deviceId]);
 
-        // Cleanup when deviceId changes or provider unmounts
-        return () => {
-            console.log("Cleaning up WS for device:", deviceId);
-            if (wsRef.current === ws) {
+    // Create/cleanup WS when deviceId changes
+    useEffect(() => {
+        if (!deviceId) {
+            // No device => ensure socket & timers are cleared
+            if (wsRef.current) {
                 wsRef.current.close();
                 wsRef.current = null;
             }
+            clearReconnectTimeout();
+            setIsDeviceConnected(false);
+            return;
+        }
+
+        connectWebSocket();
+
+        return () => {
+            console.log("Cleaning up WS for device:", deviceId);
+            clearReconnectTimeout();
+            if (wsRef.current) {
+                wsRef.current.close();
+                wsRef.current = null;
+            }
+            setIsDeviceConnected(false);
         };
-        // We intentionally key only on deviceId so WS is created:
-        // - once on initial deviceId
-        // - again only if deviceId changes
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [deviceId]);
+    }, [deviceId, connectWebSocket]);
 
     const signout = () => {
         AppStorage.clearSession();
@@ -165,11 +219,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setAuthToken(null);
         setDeviceId(null);
 
+        clearReconnectTimeout();
         if (wsRef.current) {
             wsRef.current.close();
             wsRef.current = null;
         }
+        setIsDeviceConnected(false);
     };
+
+    // signin / signup code unchanged ...
 
     const signin = async (email: string, password: string) => {
         const response = await fetch(`${base_url}auth/login`, {
@@ -228,7 +286,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
-
     const getCameraBaseUrl = () => {
         if (!deviceId) return null;
         return `${base_url}camera/${deviceId}`;
@@ -245,7 +302,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         signout,
         authToken,
         isWebBrowser,
-        cameraBaseUrl: getCameraBaseUrl()
+        cameraBaseUrl: getCameraBaseUrl(),
+        isDeviceConnected, // <- now reflects WS status
     };
 
     return (

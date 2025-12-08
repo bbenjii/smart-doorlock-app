@@ -31,7 +31,6 @@ export class AppStorage{
             localStorage.setItem("session", JSON.stringify(session));
         }
         else {
-            localStorage.setItem("session", JSON.stringify(session));
             storage.set("session", JSON.stringify(session));
         }
     }
