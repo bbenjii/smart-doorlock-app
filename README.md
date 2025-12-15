@@ -1,50 +1,140 @@
-# Welcome to your Expo app 👋
+# Smart Lock – React Native Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This repository contains the React Native mobile application for the **Smart Lock** project.  
+The app is built with **Expo** and is responsible for interacting with the Smart Lock backend and device (for example authentication, device control, and Bluetooth features).
 
-## Get started
+---
 
-1. Install dependencies
+## Prerequisites
+
+Before getting started, make sure you have the following installed:
+
+- Node.js (LTS recommended)
+- npm
+- Expo CLI (via `npx`, no global install required)
+- Xcode (for iOS development)
+- CocoaPods (for iOS native dependencies)
+
+---
+
+## Getting Started
+
+### 1. Install dependencies
+
+From the project root, run:
+
+```bash
+npm install
+````
+
+---
+
+### 2. Configure environment variables (optional but recommended)
+
+If you are running the backend server locally, create a `.env` file at the root of the project with the following variable:
+
+```env
+EXPO_PUBLIC_API_URL="http://<your-computer-ip>:8000"
+```
+
+Notes:
+
+* Replace `<your-computer-ip>` with your local network IP (not `localhost`).
+* This is required for testing the app on a physical device.
+
+---
+
+### 3. Start the Expo development server
+
+```bash
+npx expo start
+```
+
+This will open the Expo developer tools and display a QR code.
+
+---
+
+## Running the App
+
+### Run in the Browser
+
+You can access the app in a web browser at:
+
+```
+http://localhost:8081
+```
+
+Notes:
+
+* The exact port may vary.
+* Some features will **not** work in the browser, especially Bluetooth-related functionality.
+
+---
+
+### Run on iPhone (macOS only – tested setup)
+
+This setup has been tested with **iPhone + macOS**.
+iPhone + Windows has not been tested.
+
+#### iOS native setup
+
+1. Install iOS dependencies:
 
    ```bash
-   npm install
+   cd ios
+   pod install
+   cd ..
    ```
 
-2. Start the app
+2. Open the iOS project in Xcode:
+
+   ```bash
+   xed -b ios
+   ```
+
+3. Start the Expo server (if not already running):
 
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+4. Scan the QR code using your iPhone camera.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+    * The app should open directly on your device.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+For a complete walkthrough, see this video:
+[https://www.youtube.com/watch?v=daghwzIuiA0](https://www.youtube.com/watch?v=daghwzIuiA0)
 
-## Get a fresh project
+---
 
-When you're ready, run:
+### Run on Android
 
-```bash
-npm run reset-project
-```
+This setup has not yet been tested.
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+If you successfully run the app on Android:
 
-## Learn more
+* Please add the steps here.
+* A short video or emulator setup guide would be helpful.
 
-To learn more about developing your project with Expo, look at the following resources:
+---
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## Notes & Limitations
 
-## Join the community
+* Bluetooth functionality only works on physical devices.
+* Ensure your phone and computer are on the same local network when using a local backend.
+* If the app cannot reach the backend, double-check the `EXPO_PUBLIC_API_URL` value.
 
-Join our community of developers creating universal apps.
+---
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Project Context
+
+This mobile app is part of the **Smart Lock** system, which includes:
+
+* A hardware lock device
+* A backend server (API + WebSocket)
+* This React Native mobile client
+
+For backend setup and device firmware details, refer to their respective repositories.
+
+---
+

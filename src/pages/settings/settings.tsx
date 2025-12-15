@@ -223,6 +223,11 @@ const SigninForm = () => {
                     textContentType="password"
                 />
             </View>
+            <View>
+                <Text style={styles.inputLabel}>{`For testing without server:`}</Text>
+                <Text style={styles.inputLabel}>{`email='test', password='test'`}</Text>
+
+            </View>
             {error && <Text style={{ color: "#dc2626", fontWeight: "600" }}>{error}</Text>}
             <TouchableOpacity style={[styles.button, styles.buttonPrimary]} onPress={handleSubmit} disabled={submitting}>
                 <Text style={[styles.buttonText, styles.buttonPrimaryText]}>

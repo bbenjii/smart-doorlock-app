@@ -2,6 +2,7 @@ import { createContext, ReactNode, useEffect, useRef, useState, useCallback } fr
 import { Toast } from "@/src/components/toast";
 import { AppStorage } from "@/src/hooks/useAppStorage";
 import { Platform } from "react-native";
+// import Config from 'react-native-config';
 
 export const AppContext = createContext<any>(null);
 
@@ -9,7 +10,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<any | null>(null);
     const [authToken, setAuthToken] = useState<string | null>(null);
     const [deviceId, setDeviceId] = useState<string | null>(null);
-    const base_url = "http://192.168.2.208:8000/";
+    // const base_url = Config.SERVER_BASE_URL;
+    const base_url = process.env.EXPO_PUBLIC_API_URL + '/';
+
     const [isLocked, setIsLocked] = useState(false);
     const [toastVisible, setToastVisible] = useState(false);
     const [isDeviceConnected, setIsDeviceConnected] = useState(false);
@@ -230,6 +233,25 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     // signin / signup code unchanged ...
 
     const signin = async (email: string, password: string) => {
+        if(email=== "test" && password === "test"){
+            const data = {user:{
+                "id": 1,
+                "email": "",
+                "firstName": "test",
+                "lastName": "test",
+                "device_id": "smartlock_5C567740C86C",
+            },
+            token: "1"}
+
+            setUser(data.user);
+            setAuthToken(data.token);
+            AppStorage.setSession({ user: data.user, token: data.token });
+
+            if (data.user?.device_id) {
+                setDeviceId(data.user.device_id);
+            }
+            return
+        }
         const response = await fetch(`${base_url}auth/login`, {
             method: "POST",
             headers: {
