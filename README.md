@@ -47,7 +47,7 @@ Notes:
 ### 3. Start the Expo development server
 
 ```bash
-npx expo start
+npx expo start --tunnel
 ```
 
 This will open the Expo developer tools and display a QR code.
@@ -95,8 +95,9 @@ iPhone + Windows has not been tested.
 3. Start the Expo server (if not already running):
 
    ```bash
-   npx expo start
+   npx expo start --tunnel
    ```
+   (--tunnel is required sometimes when app doesnt start on ios)
 
 4. Scan the QR code using your iPhone camera.
 
