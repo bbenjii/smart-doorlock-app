@@ -6,13 +6,17 @@ import { Platform } from "react-native";
 
 export const AppContext = createContext<any>(null);
 
+const EXPO_PUBLIC_API_URL="http://192.168.2.208:8000/"
+// const EXPO_PUBLIC_API_URL="http://172.30.56.5:8000/"
+
 export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<any | null>(null);
     const [authToken, setAuthToken] = useState<string | null>(null);
     const [deviceId, setDeviceId] = useState<string | null>(null);
-    // const base_url = Config.SERVER_BASE_URL;
-    const base_url = process.env.EXPO_PUBLIC_API_URL + '/';
+    // const base_url = process.env.EXPO_PUBLIC_API_URL + '/';
+    // let EXPO_PUBLIC_API_URL="http://172.30.20.117:8000/"
 
+    const base_url = EXPO_PUBLIC_API_URL;
     const [isLocked, setIsLocked] = useState(false);
     const [toastVisible, setToastVisible] = useState(false);
     const [isDeviceConnected, setIsDeviceConnected] = useState(false);
@@ -52,6 +56,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const httpUnlock = () => {
         if (!deviceId) return;
         const url = `${base_url}send-command/${deviceId}/UNLOCK`;
+        console.log("Sending unlock command to:", url);
         return fetch(url, { method: "POST" });
     };
 
