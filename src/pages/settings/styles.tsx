@@ -208,6 +208,16 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: "#111827",
     },
+    settingToggleRow: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: "#e5e7eb",
+        gap: 12,
+    },
     circleIcon: {
         width: 32,
         height: 32,

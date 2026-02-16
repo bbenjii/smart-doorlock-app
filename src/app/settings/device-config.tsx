@@ -1,10 +1,10 @@
 import { StyleSheet, View } from "react-native";
-import Settings from "../pages/settings/settings";
+import DeviceConfig from "@/src/pages/settings/device-config";
 
-export default function SettingsScreen() {
+export default function DeviceConfigScreen() {
     return (
         <View style={styles.screen}>
-            <Settings />
+            <DeviceConfig />
         </View>
     );
 }
