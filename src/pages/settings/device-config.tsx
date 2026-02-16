@@ -1,32 +1,37 @@
-import {ScrollView, Text, TouchableOpacity, View} from "react-native";
+import {ScrollView, Text, TextInput, TouchableOpacity, View} from "react-native";
 import styles from "@/src/pages/settings/styles";
-import React, {useCallback, useContext, useEffect, useState} from "react";
+import React, {useContext, useEffect, useState} from "react";
 import {AppContext} from "@/src/context/app-context";
-import {useRouter} from "expo-router";
 import {Dialog} from "@/src/components/dialog";
 import {useBLE} from "@/src/context/ble-context";
-import {useFocusEffect} from "@react-navigation/native";
+
 
 export default function DeviceConfig() {
-    const {user, deviceId, signout, isDeviceConnected} = useContext(AppContext);
-    const router = useRouter();
+    const {deviceId} = useContext(AppContext);
     const [openBluetoothConnection, setOpenBluetoothConnection] = useState(false);
-    const connectedDevice = {
-        id: "smartlock_D0DB64A84320",
-        name: "Smart Lock",
-        localName: "Smart Lock",
-    }
+    const [selectedWifi, setSelectedWifi] = useState<string>("");
+    const [wifiPassword, setWifiPassword] = useState("");
+    const [openWifiConfig, setOpenWifiConfig] = useState(false);
+    const [openBackendConfig, setOpenBackendConfig] = useState(false);
+    const [backendEndpoint, setBackendEndpoint] = useState("");
+    
+    // const connectedDevice = {
+    //     id: "smartlock_D0DB64A84320",
+    //     name: "Smart Lock",
+    //     localName: "Smart Lock",
+    // }
     const {
         allDevices,
-        // connectedDevice,
+        connectedDevice,
         connectToDevice,
         disconnectFromDevice,
         requestPermissions,
         scanForPeripherals,
         stopScan,
         resetDevices,
+        sendCommand
     } = useBLE();
-
+    
     function deviceHasName(device: any) {
         const name = (device.name || "").trim();
         const localName = (device.localName || "").trim();
@@ -85,6 +90,30 @@ export default function DeviceConfig() {
                         <Text style={styles.rowSubtitle}>Configurate device via bluetooth</Text>
 
                         <BluetoothDeviceCard key={connectedDevice.id} device={connectedDevice} isConnected={true} disconnectFromDevice={disconnectFromDevice} connectToDevice={connectToDevice}/>
+                        
+                        <View>
+                            <Text style={styles.rowTitle}>Wifi Config</Text>
+                            {/*<Text style={styles.rowSubtitle}>{connectedDevice.name}</Text>*/}
+                            <TouchableOpacity
+                                onPress={() => setOpenWifiConfig(true)}
+                                style={[styles.button, styles.buttonOutline]}
+                            >
+                                <Text style={[styles.buttonText, styles.buttonOutlineText]}>
+                                    Configure Wifi
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                        <View style={styles.sectionSpacing}>
+                            <Text style={styles.rowTitle}>Backend Server</Text>
+                            <TouchableOpacity
+                                onPress={() => setOpenBackendConfig(true)}
+                                style={[styles.button, styles.buttonOutline]}
+                            >
+                                <Text style={[styles.buttonText, styles.buttonOutlineText]}>
+                                    Set Backend Endpoint
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                     
                     
@@ -129,6 +158,80 @@ export default function DeviceConfig() {
                     )}
                 </View>
         
+            </Dialog>
+
+            <Dialog
+                visible={openWifiConfig}
+                title="Wifi Configuration"
+                description="Select a network and enter the password."
+                onDismiss={() => setOpenWifiConfig(false)}
+                primaryAction={{
+                    label: "Save",
+                    onPress: () => {
+                        setOpenWifiConfig(false);
+                        sendCommand(JSON.stringify({ssid: selectedWifi, password: wifiPassword}), connectedDevice);
+                    },
+                }}
+                secondaryAction={{
+                    label: "Cancel",
+                    onPress: () => setOpenWifiConfig(false),
+                }}
+            >
+                <View style={{gap: 12}}>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Wifi Network (SSID)</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={selectedWifi}
+                            onChangeText={setSelectedWifi}
+                            placeholder="Enter wifi network name"
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                        />
+                    </View>
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Wifi Password</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={wifiPassword}
+                            onChangeText={setWifiPassword}
+                            placeholder="Enter wifi password"
+                            secureTextEntry
+                        />
+                    </View>
+                </View>
+            </Dialog>
+
+            <Dialog
+                visible={openBackendConfig}
+                title="Backend Server Endpoint"
+                description="Enter the base URL for the backend server."
+                onDismiss={() => setOpenBackendConfig(false)}
+                primaryAction={{
+                    label: "Save",
+                    onPress: () => {
+                        setOpenBackendConfig(false);
+                        sendCommand(JSON.stringify({backendBaseUrl: backendEndpoint}), connectedDevice);
+                    },
+                }}
+                secondaryAction={{
+                    label: "Cancel",
+                    onPress: () => {
+                        setOpenWifiConfig(false);
+                    }}
+            }
+            >
+                <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Backend Endpoint</Text>
+                    <TextInput
+                        style={styles.input}
+                        value={backendEndpoint}
+                        onChangeText={setBackendEndpoint}
+                        placeholder="http://192.168.1.10:8000"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                    />
+                </View>
             </Dialog>
         </ScrollView>
     );
