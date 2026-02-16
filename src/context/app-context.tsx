@@ -7,7 +7,7 @@ import { Platform } from "react-native";
 export const AppContext = createContext<any>(null);
 
 const EXPO_PUBLIC_API_URL="http://192.168.2.208:8000/"
-// const EXPO_PUBLIC_API_URL="http://172.30.56.5:8000/"
+// const EXPO_PUBLIC_API_URL=""
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [user, setUser] = useState<any | null>(null);
