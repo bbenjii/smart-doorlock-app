@@ -6,7 +6,9 @@ import { Platform } from "react-native";
 
 export const AppContext = createContext<any>(null);
 
-const EXPO_PUBLIC_API_URL="http://192.168.2.208:8000/"
+// const EXPO_PUBLIC_API_URL="http://192.168.2.208:8000/"
+const EXPO_PUBLIC_API_URL="https://smart-doorlock-server-851342133148.europe-west1.run.app/"
+
 // const EXPO_PUBLIC_API_URL=""
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
@@ -47,24 +49,32 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
     };
 
+    const authHeaders = useCallback(() => {
+        const headers: Record<string, string> = {};
+        if (authToken) {
+            headers["Authorization"] = `Bearer ${authToken}`;
+        }
+        return headers;
+    }, [authToken]);
+
     const httpLock = () => {
         if (!deviceId) return;
         const url = `${base_url}send-command/${deviceId}/LOCK`;
-        return fetch(url, { method: "POST" });
+        return fetch(url, { method: "POST", headers: authHeaders() });
     };
 
     const httpUnlock = () => {
         if (!deviceId) return;
         const url = `${base_url}send-command/${deviceId}/UNLOCK`;
         console.log("Sending unlock command to:", url);
-        return fetch(url, { method: "POST" });
+        return fetch(url, { method: "POST", headers: authHeaders() });
     };
 
     const httpGetLockStatus = () => {
         if (!deviceId) return;
 
         const url = `${base_url}status/${deviceId}`;
-        return fetch(url, { method: "GET" })
+        return fetch(url, { method: "GET", headers: authHeaders() })
             .then((response) => response.json())
             .then((data) => {
                 const status = data?.status;
@@ -102,12 +112,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         if (storedSession?.user) {
             setUser(storedSession.user);
         }
-        if (storedSession?.token) {
-            setAuthToken(storedSession.token);
+        const storedToken =
+            storedSession?.token || storedSession?.accessToken || storedSession?.access_token;
+        if (storedToken) {
+            setAuthToken(storedToken);
         }
 
         const fallbackDeviceId =
-            storedSession?.user?.device_id || "smartlock_5C567740C86C";
+            storedSession?.user?.deviceId ||
+            storedSession?.user?.device_id ||
+            "smartlock_5C567740C86C";
         setDeviceId(fallbackDeviceId);
     }, []);
 
@@ -273,12 +287,19 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
 
         const data = await response.json();
+        console.log("Signin response:", data);
+        const accessToken = data?.access_token ?? data?.token ?? null;
+        const refreshToken = data?.refresh_token ?? null;
         setUser(data.user);
-        setAuthToken(data.token);
-        AppStorage.setSession({ user: data.user, token: data.token });
+        if (accessToken) {
+            console.log("Got access token:", accessToken);
+            setAuthToken(accessToken);
+        }
+        AppStorage.setSession({ user: data.user, token: accessToken, refreshToken });
 
-        if (data.user?.device_id) {
-            setDeviceId(data.user.device_id);
+        const nextDeviceId = data.user?.deviceId ?? data.user?.device_id;
+        if (nextDeviceId) {
+            setDeviceId(nextDeviceId);
         }
     };
 
@@ -304,12 +325,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
 
         const data = await response.json();
+        const accessToken = data?.access_token ?? data?.token ?? null;
+        const refreshToken = data?.refresh_token ?? null;
         setUser(data.user);
-        setAuthToken(data.token);
-        AppStorage.setSession({ user: data.user, token: data.token });
+        if (accessToken) {
+            setAuthToken(accessToken);
+        }
+        AppStorage.setSession({ user: data.user, token: accessToken, refreshToken });
 
-        if (data.user?.device_id) {
-            setDeviceId(data.user.device_id);
+        const nextDeviceId = data.user?.deviceId ?? data.user?.device_id;
+        if (nextDeviceId) {
+            setDeviceId(nextDeviceId);
         }
     };
 

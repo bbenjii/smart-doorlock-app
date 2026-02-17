@@ -11,7 +11,15 @@ const styles = StyleSheet.create({
     
     header_top: {
         
-}
+},
+
+    cameraWrap: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: "black",
+    },
+    webview: {
+        flex: 1,
+    },
 })
 
 export default styles;

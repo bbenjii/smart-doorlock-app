@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState, useCallback} from "react";
+import React, {useEffect, useRef, useState, useCallback, useContext} from "react";
 import {useFocusEffect} from "@react-navigation/native";
 
 import {
@@ -13,11 +13,13 @@ import {
 } from "react-native";
 
 import {useBLE} from "@/src/context/ble-context";
+import {AppContext} from "@/src/context/app-context";
 
 const base_url = "https://0dae5b628806.ngrok-free.app/";
 
 const DEVICE_ID = "smartlock_D0DB64A84320";
 export default function Testing() {
+    const { authToken } = useContext(AppContext);
     const {
         allDevices,
         connectedDevice,
@@ -35,19 +37,27 @@ export default function Testing() {
 
     const wsRef = useRef<WebSocket | null>(null);
 
+    const authHeaders = useCallback(() => {
+        const headers: Record<string, string> = {};
+        if (authToken) {
+            headers["Authorization"] = `Bearer ${authToken}`;
+        }
+        return headers;
+    }, [authToken]);
+
     const httpLock = () => {
         const url = `${base_url}send-command/${DEVICE_ID}/LOCK`;
-        return fetch(url, {method: "POST"});
+        return fetch(url, {method: "POST", headers: authHeaders()});
     };
 
     const httpUnlock = () => {
         const url = `${base_url}send-command/${DEVICE_ID}/UNLOCK`;
-        return fetch(url, {method: "POST"});
+        return fetch(url, {method: "POST", headers: authHeaders()});
     };
     
     const httpGetLockStatus = () => {
         const url = `${base_url}status/${DEVICE_ID}`;
-        return fetch(url, {method: "GET"})
+        return fetch(url, {method: "GET", headers: authHeaders()})
             .then((response) => response.json())
             .then((data) => {
                 const status = data?.status;

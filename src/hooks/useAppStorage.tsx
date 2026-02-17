@@ -26,7 +26,7 @@ export class AppStorage{
 
     }
 
-    static setSession(session: { user: any; token: string }) {
+    static setSession(session: { user: any; token: string | null; refreshToken?: string | null }) {
         if (Platform.OS === 'web') {
             localStorage.setItem("session", JSON.stringify(session));
         }

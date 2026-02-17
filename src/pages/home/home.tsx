@@ -16,6 +16,10 @@ import {useRouter} from "expo-router";
 import {WebView} from "react-native-webview";
 import {useFocusEffect} from "@react-navigation/native";
 import {Platform} from 'react-native';
+import styles from './styles';
+import { Dimensions } from "react-native";
+const { width } = Dimensions.get("window");
+
 
 export default function Home() {
     const {user, deviceId, httpLock, httpUnlock, isLocked} = useContext(AppContext);
@@ -234,14 +238,16 @@ export default function Home() {
 const CameraFeed = ({ isCallActive }: { isCallActive: boolean }) => {
     const { width } = useWindowDimensions();
     const isLargeScreen = width > 800;
-    const {cameraBaseUrl, isWebBrowser} = useContext(AppContext);
+    const {cameraBaseUrl, isWebBrowser, authToken} = useContext(AppContext);
     const [source, setSource] = useState("");
     const [webViewKey, setWebViewKey] = useState(0);
-
+    const upscale = 2;
+    
     useFocusEffect(
         useCallback(() => {
             // Force WebView to refresh its connection every time the screen gains focus.
             if (cameraBaseUrl) {
+                console.log("Setting camera source to:", cameraBaseUrl);
                 setSource(`${cameraBaseUrl}/stream?ts=${Date.now()}`);
                 setWebViewKey((prev) => prev + 1);
             }
@@ -250,6 +256,8 @@ const CameraFeed = ({ isCallActive }: { isCallActive: boolean }) => {
             };
         }, [cameraBaseUrl])
     );
+
+    const height = (width * 9) / 16;
     
     
     return (
@@ -265,19 +273,30 @@ const CameraFeed = ({ isCallActive }: { isCallActive: boolean }) => {
                     maxWidth: isLargeScreen ? 900 : "100%",
                 }}
             >
-                <View style={{ width: "100%", aspectRatio: 16 / 9 }}>
+                <View style={{ width: "100%", flex: 3, aspectRatio: 16 / 9, overflow: "hidden" }}>
                     {source ? (
                         isWebBrowser ?
                             <img
                                 src={source}
-                                style={{width: "100%", height: "100%", border: "none"}}
+                                style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    border: "none",
+                                    transform: `scale(${upscale})`,
+                                    transformOrigin: "center",
+                                    imageRendering: "pixelated",
+                                }}
                                 // sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                              alt={"camera feed"}/>
                             :
                             <WebView
                                 key={webViewKey}
-                                source={{uri: source}}
-                                style={{flex: 1}}
+                                source={{
+                                    uri: source,
+                                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+                                }}
+                                scalesPageToFit={true}
+                                style={{flex: 1, transform: [{ scale: upscale }]}}
                                 javaScriptEnabled
                                 domStorageEnabled
                             />
