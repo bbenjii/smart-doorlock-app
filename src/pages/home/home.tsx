@@ -30,25 +30,19 @@ export default function Home() {
     const [displayLocked, setDisplayLocked] = useState(isLocked);
     const [lockBusy, setLockBusy] = useState(false);
 
-    useEffect(() => {
-        if (!lockBusy) {
-            setDisplayLocked(isLocked);
-        }
-    }, [isLocked, lockBusy]);
-
     const toggleLock = async () => {
         if (lockBusy) return;
-        const previous = displayLocked;
-        const next = !previous;
+        const next = !displayLocked;
         setDisplayLocked(next);
         setLockBusy(true);
         try {
-            const res = previous ? await httpUnlock?.() : await httpLock?.();
-            if (!res?.ok) {
-                setDisplayLocked(previous);
+            if (next) {
+                await httpLock?.();
+            } else {
+                await httpUnlock?.();
             }
         } catch {
-            setDisplayLocked(previous);
+            // Keep button state click-driven; do not auto-flip back.
         } finally {
             setLockBusy(false);
         }
