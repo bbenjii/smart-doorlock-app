@@ -27,8 +27,32 @@ export default function Home() {
     // const [isLocked, setIsLocked] = useState(false);
     const [isCallActive, setIsCallActive] = useState(false);
     const [lastActivities, setLastActivities] = useState([]); // placeholder if you later make this dynamic
+    const [displayLocked, setDisplayLocked] = useState(isLocked);
+    const [lockBusy, setLockBusy] = useState(false);
 
-    const toggleLock = () => isLocked ? httpUnlock() : httpLock();
+    useEffect(() => {
+        if (!lockBusy) {
+            setDisplayLocked(isLocked);
+        }
+    }, [isLocked, lockBusy]);
+
+    const toggleLock = async () => {
+        if (lockBusy) return;
+        const previous = displayLocked;
+        const next = !previous;
+        setDisplayLocked(next);
+        setLockBusy(true);
+        try {
+            const res = previous ? await httpUnlock?.() : await httpLock?.();
+            if (!res?.ok) {
+                setDisplayLocked(previous);
+            }
+        } catch {
+            setDisplayLocked(previous);
+        } finally {
+            setLockBusy(false);
+        }
+    };
     const toggleCall = () => setIsCallActive((prev) => !prev);
 
     useEffect(() => {
@@ -64,7 +88,7 @@ export default function Home() {
                     }}
                 >
                     <Text style={{ fontSize: 18, fontWeight: "600" }}>Front Door</Text>
-                    <LockedStatus locked={isLocked} />
+                    <LockedStatus locked={displayLocked} />
                 </View>
                 <Text style={{ color: "#6b7280" }}>Live View</Text>
             </View>
@@ -81,7 +105,7 @@ export default function Home() {
                         marginBottom: 16,
                     }}
                 >
-                    <LockButton locked={isLocked} onLockCallback={toggleLock} />
+                    <LockButton locked={displayLocked} onLockCallback={toggleLock} disabled={lockBusy} />
                     {/* <StartCallButton callActive={isCallActive} onStartCallCallback={toggleCall} /> */}
                 </View>
 
@@ -379,9 +403,11 @@ const StartCallButton = ({
 const LockButton = ({
                         locked,
                         onLockCallback,
+                        disabled,
                     }: {
     locked: boolean;
     onLockCallback: () => void;
+    disabled?: boolean;
 }) => {
     const lockedIcon = require("../../assets/images/lock.png");
     const unlockedIcon = require("../../assets/images/lock-open.png");
@@ -396,12 +422,14 @@ const LockButton = ({
     return (
         <TouchableOpacity
             onPress={onLockCallback}
+            disabled={disabled}
             style={{
                 flex: 1,
                 height: 80,
                 marginRight: 6,
                 borderRadius: 12,
                 backgroundColor,
+                opacity: disabled ? 0.7 : 1,
                 alignItems: "center",
                 justifyContent: "center",
                 flexDirection: "column",
