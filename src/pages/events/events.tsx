@@ -15,8 +15,7 @@ type EventItem = {
 };
 
 const FETCH_TIMEOUT = 8000;
-const REALTIME_REFRESH_MS = 5000;
-const MAX_VISIBLE_LOGS = 8;
+type DataSource = "logs" | "events" | "user_events";
 
 function buildApiUrl(baseUrl: string, path: string): string {
     const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
@@ -62,6 +61,32 @@ function mapAuditLog(raw: any): EventItem | null {
     };
 }
 
+function mapDeviceEvent(raw: any): EventItem | null {
+    const eventType = raw.eventType || "EVENT";
+    if (eventType !== "LOCKED" && eventType !== "UNLOCKED") return null;
+
+    return {
+        id: raw.eventId || String(Math.random()),
+        state: eventType,
+        title: eventType === "LOCKED" ? "Door Locked" : "Door Unlocked",
+        timestamp: raw.timestamp ? formatTimestamp(raw.timestamp) : "—",
+        rawTimestamp: raw.timestamp ? String(raw.timestamp) : "",
+        icon: eventType === "LOCKED" ? require("../../assets/images/lock.png") : require("../../assets/images/lock-open.png"),
+        tint: eventType === "LOCKED" ? "#dc2626" : "#16a34a",
+    };
+}
+
+function sortByTimestamp(items: EventItem[]): EventItem[] {
+    return [...items].sort((a, b) => {
+        const at = Date.parse(a.rawTimestamp);
+        const bt = Date.parse(b.rawTimestamp);
+        if (Number.isNaN(at) && Number.isNaN(bt)) return 0;
+        if (Number.isNaN(at)) return 1;
+        if (Number.isNaN(bt)) return -1;
+        return bt - at;
+    });
+}
+
 async function fetchWithTimeout(url: string, opts: RequestInit, timeoutMs: number): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -80,29 +105,18 @@ export default function Events() {
     const [events, setEvents] = useState<EventItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [source, setSource] = useState<DataSource | null>(null);
     
-    const mergeAndSortEvents = useCallback((existing: EventItem[], incoming: EventItem[]) => {
-        const byId = new Map<string, EventItem>();
-        for (const item of existing) byId.set(item.id, item);
-        for (const item of incoming) byId.set(item.id, item);
-
-        const sorted = Array.from(byId.values()).sort((a, b) => {
-            const at = Date.parse(a.rawTimestamp);
-            const bt = Date.parse(b.rawTimestamp);
-            if (Number.isNaN(at) && Number.isNaN(bt)) return 0;
-            if (Number.isNaN(at)) return 1;
-            if (Number.isNaN(bt)) return -1;
-            return bt - at;
-        });
-
-        const deduped: EventItem[] = [];
-        for (const item of sorted) {
-            const prev = deduped[deduped.length - 1];
+    const dedupeConsecutive = useCallback((items: EventItem[]): EventItem[] => {
+        const result: EventItem[] = [];
+        for (const item of items) {
+            const prev = result[result.length - 1];
             if (prev && prev.state === item.state) continue;
-            deduped.push(item);
+            result.push(item);
         }
-
-        return deduped.slice(0, MAX_VISIBLE_LOGS);
+        return result;
     }, []);
 
     const headers = useCallback(() => {
@@ -111,31 +125,86 @@ export default function Events() {
         return h;
     }, [authToken]);
 
-    const fetchEvents = useCallback(async (background = false) => {
+    const fetchEvents = useCallback(async (cursor?: string | null) => {
         if (!deviceId || !authToken || !apiBaseUrl) {
             setLoading(false);
             return;
         }
 
-        if (!background) setLoading(true);
+        if (!cursor) setLoading(true);
+        else setLoadingMore(true);
+
         setError(null);
 
         try {
-            const url = buildApiUrl(apiBaseUrl, `devices/${deviceId}/logs?limit=100`);
-            const response = await fetchWithTimeout(url, { headers: headers() }, FETCH_TIMEOUT);
+            const resolvedUserId =
+                user?.id ?? user?.user_id ?? user?.userId ?? null;
 
-            if (!response.ok) {
-                const body = await response.json().catch(() => ({}));
-                throw new Error(body?.detail || "Failed to load events");
+            const candidates: DataSource[] =
+                cursor && source
+                    ? [source]
+                    : resolvedUserId
+                        ? ["logs", "events", "user_events"]
+                        : ["logs", "events"];
+            let selectedSource: DataSource | null = null;
+            let data: any = null;
+            let lastError: string | null = null;
+
+            for (const candidate of candidates) {
+                let url =
+                    candidate === "logs"
+                        ? buildApiUrl(apiBaseUrl, `devices/${deviceId}/logs?limit=50`)
+                        : candidate === "events"
+                            ? buildApiUrl(apiBaseUrl, `devices/${deviceId}/events?limit=50`)
+                            : buildApiUrl(
+                                apiBaseUrl,
+                                `users/${encodeURIComponent(String(resolvedUserId))}/events?device_id=${encodeURIComponent(deviceId)}&limit=50`,
+                            );
+
+                if (cursor) url += `&cursor_ts=${encodeURIComponent(cursor)}`;
+
+                try {
+                    const response = await fetchWithTimeout(
+                        url,
+                        { headers: headers() },
+                        FETCH_TIMEOUT,
+                    );
+
+                    if (!response.ok) {
+                        const body = await response.json().catch(() => ({}));
+                        lastError = body?.detail || `Failed to load ${candidate}`;
+                        continue;
+                    }
+
+                    data = await response.json();
+                    selectedSource = candidate;
+                    break;
+                } catch (candidateErr: any) {
+                    lastError = candidateErr?.message || `Failed to load ${candidate}`;
+                    continue;
+                }
             }
 
-            const data = await response.json();
-            const mapped = (data.items || []).map(mapAuditLog).filter(Boolean) as EventItem[];
-            if (background) {
-                setEvents((prev) => mergeAndSortEvents(prev, mapped));
+            if (!selectedSource || !data) {
+                throw new Error(lastError || "Failed to load events");
+            }
+
+            const mapped =
+                selectedSource === "logs"
+                    ? (data.items || []).map(mapAuditLog).filter(Boolean) as EventItem[]
+                    : (data.items || []).map(mapDeviceEvent).filter(Boolean) as EventItem[];
+
+            if (cursor) {
+                setEvents((prev) => {
+                    const merged = sortByTimestamp([...prev, ...mapped]);
+                    return dedupeConsecutive(merged);
+                });
             } else {
-                setEvents(mergeAndSortEvents([], mapped));
+                const sorted = sortByTimestamp(mapped);
+                setEvents(dedupeConsecutive(sorted));
             }
+            setSource(selectedSource);
+            setNextCursor(data.nextCursorTs || null);
         } catch (e: any) {
             if (e.name === "AbortError") {
                 setError("Server unreachable");
@@ -144,22 +213,13 @@ export default function Events() {
             }
         } finally {
             setLoading(false);
+            setLoadingMore(false);
         }
-    }, [deviceId, authToken, apiBaseUrl, headers, mergeAndSortEvents]);
+    }, [deviceId, authToken, apiBaseUrl, headers, source, user, dedupeConsecutive]);
 
     useEffect(() => {
-        setEvents([]);
-        fetchEvents(false);
+        fetchEvents();
     }, [fetchEvents]);
-
-    useEffect(() => {
-        if (!deviceId || !authToken || !apiBaseUrl) return;
-        const timer = setInterval(() => {
-            fetchEvents(true);
-        }, REALTIME_REFRESH_MS);
-
-        return () => clearInterval(timer);
-    }, [deviceId, authToken, apiBaseUrl, fetchEvents]);
 
     if (!user) {
         return (
@@ -193,7 +253,7 @@ export default function Events() {
                 {!loading && error && (
                     <View style={localStyles.errorBanner}>
                         <Text style={localStyles.errorText}>{error}</Text>
-                        <TouchableOpacity onPress={() => fetchEvents(false)}>
+                        <TouchableOpacity onPress={() => fetchEvents()}>
                             <Text style={localStyles.retryText}>Retry</Text>
                         </TouchableOpacity>
                     </View>
@@ -224,6 +284,19 @@ export default function Events() {
                             </View>
                         )}
 
+                        {nextCursor && events.length > 0 && (
+                            <TouchableOpacity
+                                onPress={() => fetchEvents(nextCursor)}
+                                style={localStyles.loadMoreButton}
+                                disabled={loadingMore}
+                            >
+                                {loadingMore ? (
+                                    <ActivityIndicator size="small" color="#2563eb" />
+                                ) : (
+                                    <Text style={localStyles.loadMoreText}>Load More</Text>
+                                )}
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
             </ScrollView>
@@ -296,5 +369,18 @@ const localStyles = StyleSheet.create({
         color: "#2563eb",
         fontWeight: "600",
         fontSize: 13,
+    },
+    loadMoreButton: {
+        alignItems: "center",
+        paddingVertical: 12,
+        borderWidth: 1,
+        borderColor: "#e5e7eb",
+        borderRadius: 10,
+        backgroundColor: "#fff",
+    },
+    loadMoreText: {
+        color: "#2563eb",
+        fontWeight: "600",
+        fontSize: 14,
     },
 });
