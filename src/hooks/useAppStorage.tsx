@@ -51,6 +51,26 @@ export class AppStorage{
 
         
     }
+
+    static getAutoLockEnabled(): boolean | null {
+        if (Platform.OS === "web") {
+            const value = localStorage.getItem("auto_lock_enabled");
+            if (value === null) return null;
+            return value === "true";
+        }
+
+        const value = storage.getString("auto_lock_enabled");
+        if (value === undefined) return null;
+        return value === "true";
+    }
+
+    static setAutoLockEnabled(value: boolean) {
+        if (Platform.OS === "web") {
+            localStorage.setItem("auto_lock_enabled", String(value));
+        } else {
+            storage.set("auto_lock_enabled", String(value));
+        }
+    }
     
 }
 

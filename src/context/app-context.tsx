@@ -18,8 +18,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     // const base_url = process.env.EXPO_PUBLIC_API_URL + '/';
     // let EXPO_PUBLIC_API_URL="http://172.30.20.117:8000/"
 
-    const base_url = EXPO_PUBLIC_API_URL;
+    const base_url = EXPO_PUBLIC_API_URL.endsWith("/") ? EXPO_PUBLIC_API_URL : `${EXPO_PUBLIC_API_URL}/`;
     const [isLocked, setIsLocked] = useState(false);
+    const [autoLockEnabled, setAutoLockEnabledState] = useState(true);
+    const autoLockDelayMs = 30000;
     const [toastVisible, setToastVisible] = useState(false);
     const [isDeviceConnected, setIsDeviceConnected] = useState(false);
     const [toastContent, setToastContent] = useState<{
@@ -123,7 +125,44 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             storedSession?.user?.device_id ||
             "smartlock_5C567740C86C";
         setDeviceId(fallbackDeviceId);
+
+        const savedAutoLockEnabled = AppStorage.getAutoLockEnabled();
+        if (savedAutoLockEnabled !== null) {
+            setAutoLockEnabledState(savedAutoLockEnabled);
+        }
     }, []);
+
+    useEffect(() => {
+        AppStorage.setAutoLockEnabled(autoLockEnabled);
+    }, [autoLockEnabled]);
+
+    const setAutoLockEnabled = useCallback((value: boolean) => {
+        setAutoLockEnabledState(value);
+    }, []);
+
+    const syncAutoLockSetting = useCallback(async () => {
+        if (!authToken || !deviceId) return;
+        try {
+            const response = await fetch(`${base_url}settings/${deviceId}`, {
+                method: "GET",
+                headers: {
+                    Authorization: `Bearer ${authToken}`,
+                    "Content-Type": "application/json",
+                },
+            });
+            if (!response.ok) return;
+            const data = await response.json();
+            if (typeof data?.autoLockEnabled === "boolean") {
+                setAutoLockEnabledState(data.autoLockEnabled);
+            }
+        } catch (e) {
+            console.log("Auto-lock sync error:", e);
+        }
+    }, [authToken, deviceId, base_url]);
+
+    useEffect(() => {
+        syncAutoLockSetting();
+    }, [syncAutoLockSetting]);
 
     // ========== WebSocket connection + async reconnection ==========
     const connectWebSocket = useCallback(() => {
@@ -249,8 +288,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setIsDeviceConnected(false);
     };
 
-    // signin / signup code unchanged ...
-
     const signin = async (email: string, password: string) => {
         if(email=== "test" && password === "test"){
             const data = {user:{
@@ -347,16 +384,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const contextValue = {
         user,
         deviceId,
+        apiBaseUrl: base_url,
         httpLock,
         httpUnlock,
         isLocked,
+        autoLockEnabled,
+        setAutoLockEnabled,
+        autoLockDelayMs,
         signin,
         signup,
         signout,
         authToken,
         isWebBrowser,
         cameraBaseUrl: getCameraBaseUrl(),
-        isDeviceConnected, // <- now reflects WS status
+        isDeviceConnected, 
     };
 
     return (

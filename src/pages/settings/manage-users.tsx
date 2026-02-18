@@ -2,6 +2,7 @@ import React, { useCallback, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
 import { AppContext } from "@/src/context/app-context";
+import { useRouter } from "expo-router";
 
 const VALID_METHODS = ["face", "fingerprint", "keypad", "bluetooth"] as const;
 type AuthMethod = (typeof VALID_METHODS)[number];
@@ -9,7 +10,7 @@ type AuthMethod = (typeof VALID_METHODS)[number];
 const METHOD_LABELS: Record<AuthMethod, { label: string; icon: string; color: string; description: string }> = {
     face: { label: "Face Recognition", icon: "F", color: "#f97316", description: "Unlock with enrolled face" },
     fingerprint: { label: "Fingerprint", icon: "P", color: "#8b5cf6", description: "Biometric fingerprint scan" },
-    keypad: { label: "Keypad", icon: "K", color: "#ec4899", description: "4-6 digit PIN code" },
+    keypad: { label: "Keypad", icon: "K", color: "#ec4899", description: "4-8 digit PIN code" },
     bluetooth: { label: "Bluetooth", icon: "B", color: "#2563eb", description: "Proximity auto-unlock" },
 };
 
@@ -23,18 +24,25 @@ const FETCH_TIMEOUT = 8000;
 type CredentialState = Record<AuthMethod, boolean>;
 
 export default function ManageUsers() {
-    const { user, authToken, deviceId } = useContext(AppContext);
+    const router = useRouter();
+    const { user, authToken, deviceId, apiBaseUrl } = useContext(AppContext);
     const [credentials, setCredentials] = useState<CredentialState>({
         face: false,
         fingerprint: false,
         keypad: false,
         bluetooth: false,
     });
+    const [hasKeypadCode, setHasKeypadCode] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [togglingMethod, setTogglingMethod] = useState<AuthMethod | null>(null);
 
-    const BASE_URL = "http://192.168.2.208:8000/";
+    const buildApiUrl = useCallback((path: string) => {
+        if (!apiBaseUrl) return null;
+        const normalizedBase = apiBaseUrl.endsWith("/") ? apiBaseUrl : `${apiBaseUrl}/`;
+        const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+        return `${normalizedBase}${normalizedPath}`;
+    }, [apiBaseUrl]);
 
     const headers = useCallback(() => {
         const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -44,7 +52,7 @@ export default function ManageUsers() {
 
     // Fetch current credentials
     const fetchCredentials = useCallback(async () => {
-        if (!authToken) {
+        if (!authToken || !apiBaseUrl) {
             setLoading(false);
             return;
         }
@@ -53,7 +61,9 @@ export default function ManageUsers() {
         try {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-            const response = await fetch(`${BASE_URL}credentials/me`, {
+            const url = buildApiUrl("credentials/me");
+            if (!url) throw new Error("Missing API base URL");
+            const response = await fetch(url, {
                 headers: headers(),
                 signal: controller.signal,
             });
@@ -68,12 +78,13 @@ export default function ManageUsers() {
                 keypad: methods.keypad?.isActive ?? false,
                 bluetooth: methods.bluetooth?.isActive ?? false,
             });
+            setHasKeypadCode(Boolean(methods.keypad?.data?.hasCode));
         } catch (e: any) {
             setError(e.name === "AbortError" ? "Server unreachable" : (e.message || "Failed to load"));
         } finally {
             setLoading(false);
         }
-    }, [authToken, headers]);
+    }, [authToken, apiBaseUrl, headers, buildApiUrl]);
 
     useEffect(() => {
         fetchCredentials();
@@ -90,7 +101,9 @@ export default function ManageUsers() {
             const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
 
             const endpoint = enable ? "enroll" : "revoke";
-            const response = await fetch(`${BASE_URL}credentials/me/${endpoint}`, {
+            const url = buildApiUrl(`credentials/me/${endpoint}`);
+            if (!url) throw new Error("Missing API base URL");
+            const response = await fetch(url, {
                 method: "POST",
                 headers: headers(),
                 body: JSON.stringify({ method }),
@@ -100,7 +113,16 @@ export default function ManageUsers() {
 
             if (!response.ok) {
                 const body = await response.json().catch(() => ({}));
-                throw new Error(body?.detail || "Failed to update");
+                const detail = body?.detail || "Failed to update";
+                if (
+                    method === "keypad" &&
+                    enable &&
+                    typeof detail === "string" &&
+                    detail.includes("Use keypad code endpoint")
+                ) {
+                    throw new Error("Backend is outdated for keypad re-enable. Deploy latest server, or use Set PIN once.");
+                }
+                throw new Error(detail);
             }
         } catch (e: any) {
             // Rollback
@@ -109,6 +131,16 @@ export default function ManageUsers() {
         } finally {
             setTogglingMethod(null);
         }
+    };
+
+    const handleToggle = (method: AuthMethod, enable: boolean) => {
+        // For keypad, reuse existing PIN on re-enable; only route to setup if no PIN exists yet.
+        if (method === "keypad" && enable && !hasKeypadCode) {
+            setError(null);
+            router.push("/settings/keypad");
+            return;
+        }
+        toggleMethod(method, enable);
     };
 
     // Determine user role (default to owner for now)
@@ -192,10 +224,20 @@ export default function ManageUsers() {
                                         {isToggling ? (
                                             <ActivityIndicator size="small" color="#2563eb" />
                                         ) : (
-                                            <Switch
-                                                value={credentials[method]}
-                                                onValueChange={(v) => toggleMethod(method, v)}
-                                            />
+                                            <View style={{ alignItems: "flex-end", gap: 8 }}>
+                                                {method === "keypad" && (
+                                                    <TouchableOpacity
+                                                        onPress={() => router.push("/settings/keypad")}
+                                                        style={localStyles.manageKeypadButton}
+                                                    >
+                                                        <Text style={localStyles.manageKeypadButtonText}>Set PIN</Text>
+                                                    </TouchableOpacity>
+                                                )}
+                                                <Switch
+                                                    value={credentials[method]}
+                                                    onValueChange={(v) => handleToggle(method, v)}
+                                                />
+                                            </View>
                                         )}
                                     </View>
                                 );
@@ -270,5 +312,18 @@ const localStyles = {
         fontSize: 13,
         flexShrink: 1,
         marginRight: 12,
+    },
+    manageKeypadButton: {
+        borderWidth: 1,
+        borderColor: "#2563eb",
+        borderRadius: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+        backgroundColor: "#eff6ff",
+    },
+    manageKeypadButtonText: {
+        color: "#1d4ed8",
+        fontWeight: "700" as const,
+        fontSize: 12,
     },
 };

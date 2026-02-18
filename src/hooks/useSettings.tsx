@@ -3,10 +3,12 @@ import { AppContext } from "@/src/context/app-context";
 
 export type DeviceSettings = {
     notisEnabled: boolean;
+    autoLockEnabled: boolean;
 };
 
 const DEFAULTS: DeviceSettings = {
     notisEnabled: true,
+    autoLockEnabled: true,
 };
 
 type SettingsKey = keyof DeviceSettings;
@@ -21,14 +23,18 @@ function fetchWithTimeout(url: string, opts: RequestInit, timeoutMs: number): Pr
     return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
+function buildApiUrl(baseUrl: string, path: string): string {
+    const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+    return `${normalizedBase}${normalizedPath}`;
+}
+
 export function useSettings() {
-    const { authToken, deviceId } = useContext(AppContext);
+    const { authToken, deviceId, apiBaseUrl } = useContext(AppContext);
     const [settings, setSettings] = useState<DeviceSettings>(DEFAULTS);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [updatingKeys, setUpdatingKeys] = useState<Set<SettingsKey>>(new Set());
-
-    const BASE_URL = "http://192.168.2.208:8000/";
 
     const headers = useCallback(() => {
         const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -37,7 +43,7 @@ export function useSettings() {
     }, [authToken]);
 
     const fetchSettings = useCallback(async () => {
-        if (!deviceId || !authToken) {
+        if (!deviceId || !authToken || !apiBaseUrl) {
             setSettings(DEFAULTS);
             setLoading(false);
             setError(null);
@@ -49,7 +55,7 @@ export function useSettings() {
 
         try {
             const response = await fetchWithTimeout(
-                `${BASE_URL}settings/${deviceId}`,
+                buildApiUrl(apiBaseUrl, `settings/${deviceId}`),
                 { method: "GET", headers: headers() },
                 FETCH_TIMEOUT_MS,
             );
@@ -62,6 +68,7 @@ export function useSettings() {
             const data = await response.json();
             setSettings({
                 notisEnabled: data.notisEnabled ?? DEFAULTS.notisEnabled,
+                autoLockEnabled: data.autoLockEnabled ?? DEFAULTS.autoLockEnabled,
             });
         } catch (e: any) {
             console.log("Settings fetch error:", e);
@@ -70,7 +77,7 @@ export function useSettings() {
         } finally {
             setLoading(false);
         }
-    }, [deviceId, authToken, headers]);
+    }, [deviceId, authToken, apiBaseUrl, headers]);
 
     useEffect(() => {
         fetchSettings();
@@ -78,7 +85,7 @@ export function useSettings() {
 
     const updateSetting = useCallback(
         async (key: SettingsKey, value: boolean) => {
-            if (!deviceId) return;
+            if (!deviceId || !apiBaseUrl) return;
 
             const previousValue = settings[key];
             setSettings((prev) => ({ ...prev, [key]: value }));
@@ -86,7 +93,7 @@ export function useSettings() {
 
             try {
                 const response = await fetchWithTimeout(
-                    `${BASE_URL}settings/${deviceId}/user`,
+                    buildApiUrl(apiBaseUrl, `settings/${deviceId}/user`),
                     {
                         method: "PUT",
                         headers: headers(),
@@ -104,6 +111,7 @@ export function useSettings() {
                 if (data.settings) {
                     setSettings({
                         notisEnabled: data.settings.notisEnabled ?? DEFAULTS.notisEnabled,
+                        autoLockEnabled: data.settings.autoLockEnabled ?? DEFAULTS.autoLockEnabled,
                     });
                 }
             } catch (e: any) {
@@ -118,7 +126,7 @@ export function useSettings() {
                 });
             }
         },
-        [deviceId, headers, settings],
+        [deviceId, apiBaseUrl, headers, settings],
     );
 
     return {

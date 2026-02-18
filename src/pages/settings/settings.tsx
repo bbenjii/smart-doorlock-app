@@ -60,6 +60,7 @@ export default function Settings() {
                     </View>
 
                     {/* Quick Settings */}
+                    {/* we can add this back when we have more quick settings to show on the main page
                     <View>
                         <Text style={styles.sectionTitle}>Quick Settings</Text>
                         {loading ? (
@@ -106,7 +107,7 @@ export default function Settings() {
                             </Text>
                         )}
                     </View>
-
+                        */}
                     {/* System */}
                     <View>
                         <Text style={styles.sectionTitle}>System</Text>

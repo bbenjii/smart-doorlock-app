@@ -5,6 +5,18 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#fff",
     },
+    stickyHeader: {
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        gap: 16,
+        backgroundColor: "#fff",
+    },
+    scrollContent: {
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 96,
+        gap: 16,
+    },
     content: {
         paddingHorizontal: 16,
         paddingTop: 16,

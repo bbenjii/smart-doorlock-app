@@ -22,11 +22,12 @@ const { width } = Dimensions.get("window");
 
 
 export default function Home() {
-    const {user, deviceId, httpLock, httpUnlock, isLocked} = useContext(AppContext);
+    const {user, deviceId, httpLock, httpUnlock, isLocked, autoLockEnabled, autoLockDelayMs} = useContext(AppContext);
     const router = useRouter();
     // const [isLocked, setIsLocked] = useState(false);
     const [isCallActive, setIsCallActive] = useState(false);
     const [lastActivities, setLastActivities] = useState([]); // placeholder if you later make this dynamic
+    const autoLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const toggleLock = () => isLocked ? httpUnlock() : httpLock();
     const toggleCall = () => setIsCallActive((prev) => !prev);
@@ -35,6 +36,28 @@ export default function Home() {
         // console.log("User:", user);
         // console.log("Device ID:", deviceId);
     }, []);
+
+    useEffect(() => {
+        if (autoLockTimerRef.current) {
+            clearTimeout(autoLockTimerRef.current);
+            autoLockTimerRef.current = null;
+        }
+
+        if (!user || !deviceId) return;
+        if (!autoLockEnabled) return;
+        if (isLocked) return;
+
+        autoLockTimerRef.current = setTimeout(() => {
+            httpLock?.();
+        }, autoLockDelayMs);
+
+        return () => {
+            if (autoLockTimerRef.current) {
+                clearTimeout(autoLockTimerRef.current);
+                autoLockTimerRef.current = null;
+            }
+        };
+    }, [user, deviceId, isLocked, autoLockEnabled, autoLockDelayMs, httpLock]);
 
     if (!user) {
         return (
@@ -82,7 +105,7 @@ export default function Home() {
                     }}
                 >
                     <LockButton locked={isLocked} onLockCallback={toggleLock} />
-                    <StartCallButton callActive={isCallActive} onStartCallCallback={toggleCall} />
+                    {/* <StartCallButton callActive={isCallActive} onStartCallCallback={toggleCall} /> */}
                 </View>
 
                 {/* Status Cards */}
@@ -386,9 +409,6 @@ const LockButton = ({
     const lockedIcon = require("../../assets/images/lock.png");
     const unlockedIcon = require("../../assets/images/lock-open.png");
 
-    // In the web version:
-    // - when locked: variant="default" (primary), show Unlock icon, text "Unlock Door"
-    // - when unlocked: variant="destructive", show Lock icon, text "Lock Door"
     const backgroundColor = locked ? "#111827" : "#ef4444";
     const text = locked ? "Unlock Door" : "Lock Door";
     const icon = locked ? unlockedIcon : lockedIcon;

@@ -1,111 +1,211 @@
-import React, { useContext, useMemo, useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useContext, useEffect, useState } from "react";
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
 import { AppContext } from "../../context/app-context";
 import { useRouter } from "expo-router";
-type EventCategory = "access" | "motion" | "alert";
 
 type EventItem = {
     id: string;
-    category: EventCategory;
+    state: "LOCKED" | "UNLOCKED";
     title: string;
-    description: string;
     timestamp: string;
     icon: any;
     tint: string;
 };
 
-const filterOptions: { label: string; value: "all" | EventCategory }[] = [
-    { label: "All", value: "all" },
-    { label: "Access", value: "access" },
-    { label: "Motion", value: "motion" },
-    { label: "Alerts", value: "alert" },
-];
+const FETCH_TIMEOUT = 8000;
+type DataSource = "logs" | "events" | "user_events";
 
-const eventItems: EventItem[] = [
-    {
-        id: "1",
-        category: "access",
-        title: "Door Unlocked",
-        description: "John Doe - Face Recognition",
-        timestamp: "2 minutes ago",
-        icon: require("../../assets/images/lock-open.png"),
-        tint: "#16a34a",
-    },
-    {
-        id: "2",
-        category: "motion",
-        title: "Motion Detected",
-        description: "Front door camera",
-        timestamp: "5 minutes ago",
-        icon: require("../../assets/images/camera.png"),
-        tint: "#2563eb",
-    },
-    {
-        id: "3",
-        category: "access",
-        title: "Doorbell Pressed",
-        description: "Visitor at front door",
-        timestamp: "12 minutes ago",
-        icon: require("../../assets/images/bell.png"),
-        tint: "#f97316",
-    },
-    {
-        id: "4",
-        category: "access",
-        title: "Door Locked",
-        description: "Remote lock via app",
-        timestamp: "1 hour ago",
-        icon: require("../../assets/images/lock.png"),
-        tint: "#dc2626",
-    },
-    {
-        id: "5",
-        category: "motion",
-        title: "Window Sensor Triggered",
-        description: "Living room window opened",
-        timestamp: "2 hours ago",
-        icon: require("../../assets/images/radar.png"),
-        tint: "#facc15",
-    },
-    {
-        id: "6",
-        category: "access",
-        title: "Door Unlocked",
-        description: "Sarah Miller - Bluetooth",
-        timestamp: "3 hours ago",
-        icon: require("../../assets/images/lock-open.png"),
-        tint: "#16a34a",
-    },
-    {
-        id: "7",
-        category: "alert",
-        title: "Failed Access Attempt",
-        description: "Unknown face detected",
-        timestamp: "5 hours ago",
-        icon: require("../../assets/images/bell.png"),
-        tint: "#ef4444",
-    },
-    {
-        id: "8",
-        category: "access",
-        title: "Door Unlocked",
-        description: "John Doe - PIN Code",
-        timestamp: "8 hours ago",
-        icon: require("../../assets/images/lock-open.png"),
-        tint: "#16a34a",
-    },
-];
+function buildApiUrl(baseUrl: string, path: string): string {
+    const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+    return `${normalizedBase}${normalizedPath}`;
+}
+
+function formatTimestamp(ts: string): string {
+    try {
+        const date = new Date(ts);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMin = Math.floor(diffMs / 60000);
+        const diffHr = Math.floor(diffMs / 3600000);
+        const diffDay = Math.floor(diffMs / 86400000);
+
+        if (diffMin < 1) return "Just now";
+        if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
+        if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? "" : "s"} ago`;
+        if (diffDay < 7) return `${diffDay} day${diffDay === 1 ? "" : "s"} ago`;
+        return date.toLocaleDateString();
+    } catch {
+        return ts;
+    }
+}
+
+function mapAuditLog(raw: any): EventItem | null {
+    const action = raw.action || "AUDIT";
+    const command = raw.details?.command;
+    if (action !== "COMMAND_ISSUED") return null;
+    if (command !== "LOCK" && command !== "UNLOCK") return null;
+
+    const state = command === "LOCK" ? "LOCKED" : "UNLOCKED";
+
+    return {
+        id: raw.logId || String(Math.random()),
+        state,
+        title: state === "LOCKED" ? "Door Locked" : "Door Unlocked",
+        timestamp: raw.timestamp ? formatTimestamp(raw.timestamp) : "—",
+        icon: state === "LOCKED" ? require("../../assets/images/lock.png") : require("../../assets/images/lock-open.png"),
+        tint: state === "LOCKED" ? "#dc2626" : "#16a34a",
+    };
+}
+
+function mapDeviceEvent(raw: any): EventItem | null {
+    const eventType = raw.eventType || "EVENT";
+    if (eventType !== "LOCKED" && eventType !== "UNLOCKED") return null;
+
+    return {
+        id: raw.eventId || String(Math.random()),
+        state: eventType,
+        title: eventType === "LOCKED" ? "Door Locked" : "Door Unlocked",
+        timestamp: raw.timestamp ? formatTimestamp(raw.timestamp) : "—",
+        icon: eventType === "LOCKED" ? require("../../assets/images/lock.png") : require("../../assets/images/lock-open.png"),
+        tint: eventType === "LOCKED" ? "#dc2626" : "#16a34a",
+    };
+}
+
+async function fetchWithTimeout(url: string, opts: RequestInit, timeoutMs: number): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const mergedOpts = { ...opts, signal: controller.signal };
+    try {
+        return await fetch(url, mergedOpts);
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
 export default function Events() {
-    const [selectedFilter, setSelectedFilter] = useState<"all" | EventCategory>("all");
-    const { user } = useContext(AppContext);
+    const { user, authToken, deviceId, apiBaseUrl } = useContext(AppContext);
     const router = useRouter();
 
-    const filteredEvents = useMemo(
-        () => (selectedFilter === "all" ? eventItems : eventItems.filter((evt) => evt.category === selectedFilter)),
-        [selectedFilter],
-    );
+    const [events, setEvents] = useState<EventItem[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [source, setSource] = useState<DataSource | null>(null);
+    
+    const dedupeConsecutive = useCallback((items: EventItem[]): EventItem[] => {
+        const result: EventItem[] = [];
+        for (const item of items) {
+            const prev = result[result.length - 1];
+            if (prev && prev.state === item.state) continue;
+            result.push(item);
+        }
+        return result;
+    }, []);
+
+    const headers = useCallback(() => {
+        const h: Record<string, string> = { "Content-Type": "application/json" };
+        if (authToken) h["Authorization"] = `Bearer ${authToken}`;
+        return h;
+    }, [authToken]);
+
+    const fetchEvents = useCallback(async (cursor?: string | null) => {
+        if (!deviceId || !authToken || !apiBaseUrl) {
+            setLoading(false);
+            return;
+        }
+
+        if (!cursor) setLoading(true);
+        else setLoadingMore(true);
+
+        setError(null);
+
+        try {
+            const resolvedUserId =
+                user?.id ?? user?.user_id ?? user?.userId ?? null;
+
+            const candidates: DataSource[] =
+                cursor && source
+                    ? [source]
+                    : resolvedUserId
+                        ? ["logs", "events", "user_events"]
+                        : ["logs", "events"];
+            let selectedSource: DataSource | null = null;
+            let data: any = null;
+            let lastError: string | null = null;
+
+            for (const candidate of candidates) {
+                let url =
+                    candidate === "logs"
+                        ? buildApiUrl(apiBaseUrl, `devices/${deviceId}/logs?limit=50`)
+                        : candidate === "events"
+                            ? buildApiUrl(apiBaseUrl, `devices/${deviceId}/events?limit=50`)
+                            : buildApiUrl(
+                                apiBaseUrl,
+                                `users/${encodeURIComponent(String(resolvedUserId))}/events?device_id=${encodeURIComponent(deviceId)}&limit=50`,
+                            );
+
+                if (cursor) url += `&cursor_ts=${encodeURIComponent(cursor)}`;
+
+                try {
+                    const response = await fetchWithTimeout(
+                        url,
+                        { headers: headers() },
+                        FETCH_TIMEOUT,
+                    );
+
+                    if (!response.ok) {
+                        const body = await response.json().catch(() => ({}));
+                        lastError = body?.detail || `Failed to load ${candidate}`;
+                        continue;
+                    }
+
+                    data = await response.json();
+                    selectedSource = candidate;
+                    break;
+                } catch (candidateErr: any) {
+                    lastError = candidateErr?.message || `Failed to load ${candidate}`;
+                    continue;
+                }
+            }
+
+            if (!selectedSource || !data) {
+                throw new Error(lastError || "Failed to load events");
+            }
+
+            const mapped =
+                selectedSource === "logs"
+                    ? (data.items || []).map(mapAuditLog).filter(Boolean) as EventItem[]
+                    : (data.items || []).map(mapDeviceEvent).filter(Boolean) as EventItem[];
+
+            if (cursor) {
+                setEvents((prev) => {
+                    const merged = [...prev, ...mapped];
+                    return dedupeConsecutive(merged);
+                });
+            } else {
+                const deduped = dedupeConsecutive(mapped);
+                setEvents(deduped);
+            }
+            setSource(selectedSource);
+            setNextCursor(data.nextCursorTs || null);
+        } catch (e: any) {
+            if (e.name === "AbortError") {
+                setError("Server unreachable");
+            } else {
+                setError(e.message || "Failed to load events");
+            }
+        } finally {
+            setLoading(false);
+            setLoadingMore(false);
+        }
+    }, [deviceId, authToken, apiBaseUrl, headers, source, user, dedupeConsecutive]);
+
+    useEffect(() => {
+        fetchEvents();
+    }, [fetchEvents]);
 
     if (!user) {
         return (
@@ -120,62 +220,73 @@ export default function Events() {
     }
 
     return (
-        <ScrollView contentContainerStyle={styles.content} style={styles.screen}>
-            <View style={styles.header}>
+        <View style={styles.screen}>
+            <View style={styles.stickyHeader}>
+                <View style={styles.header}>
                 <Text style={styles.title}>Activity Log</Text>
                 <Text style={styles.subtitle}>Track all security events</Text>
+                </View>
             </View>
 
-            <View style={styles.filters}>
-                {filterOptions.map((option) => {
-                    const isActive = selectedFilter === option.value;
-                    return (
-                        <TouchableOpacity
-                            key={option.value}
-                            onPress={() => setSelectedFilter(option.value)}
-                            style={[styles.filterPill, isActive ? styles.filterPillActive : styles.filterPillInactive]}
-                            accessibilityRole="button"
-                            accessibilityState={{ selected: isActive }}
-                        >
-                            <Text style={[styles.filterText, isActive ? styles.filterTextActive : styles.filterTextInactive]}>
-                                {option.label}
-                            </Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
-
-            <View style={styles.list}>
-                {filteredEvents.map((event) => (
-                    <View key={event.id} style={styles.card}>
-                        <View style={styles.cardIconWrapper}>
-                            <View style={[styles.iconBadge, { backgroundColor: `${event.tint}1a` }]}>
-                                <Image source={event.icon} style={[styles.cardIcon, { tintColor: event.tint }]} />
-                            </View>
-                        </View>
-                        <View style={styles.cardContent}>
-                            <View style={styles.cardHeader}>
-                                <Text style={styles.cardTitle}>{event.title}</Text>
-                                {event.category === "alert" && (
-                                    <View style={styles.alertBadge}>
-                                        <Text style={styles.alertText}>Alert</Text>
-                                    </View>
-                                )}
-                            </View>
-                            <Text style={styles.cardDescription}>{event.description}</Text>
-                            <Text style={styles.cardTimestamp}>{event.timestamp}</Text>
-                        </View>
-                    </View>
-                ))}
-
-                {!filteredEvents.length && (
-                    <View style={styles.emptyState}>
-                        <Text style={styles.emptyTitle}>No events yet</Text>
-                        <Text style={styles.emptySubtitle}>Try another filter or check back later.</Text>
+            <ScrollView contentContainerStyle={styles.scrollContent} style={{ flex: 1 }}>
+                {loading && (
+                    <View style={localStyles.centerCard}>
+                        <ActivityIndicator size="small" color="#2563eb" />
+                        <Text style={localStyles.centerText}>Loading logs...</Text>
                     </View>
                 )}
-            </View>
-        </ScrollView>
+
+                {!loading && error && (
+                    <View style={localStyles.errorBanner}>
+                        <Text style={localStyles.errorText}>{error}</Text>
+                        <TouchableOpacity onPress={() => fetchEvents()}>
+                            <Text style={localStyles.retryText}>Retry</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {!loading && (
+                    <View style={styles.list}>
+                        {events.map((event) => (
+                            <View key={event.id} style={styles.card}>
+                                <View style={styles.cardIconWrapper}>
+                                    <View style={[styles.iconBadge, { backgroundColor: `${event.tint}1a` }]}>
+                                        <Image source={event.icon} style={[styles.cardIcon, { tintColor: event.tint }]} />
+                                    </View>
+                                </View>
+                                <View style={styles.cardContent}>
+                                    <View style={styles.cardHeader}>
+                                        <Text style={styles.cardTitle}>{event.title}</Text>
+                                    </View>
+                                    <Text style={styles.cardTimestamp}>{event.timestamp}</Text>
+                                </View>
+                            </View>
+                        ))}
+
+                        {!events.length && !error && (
+                            <View style={styles.emptyState}>
+                                <Text style={styles.emptyTitle}>No logs yet</Text>
+                                <Text style={styles.emptySubtitle}>Logs will appear here when actions are recorded.</Text>
+                            </View>
+                        )}
+
+                        {nextCursor && events.length > 0 && (
+                            <TouchableOpacity
+                                onPress={() => fetchEvents(nextCursor)}
+                                style={localStyles.loadMoreButton}
+                                disabled={loadingMore}
+                            >
+                                {loadingMore ? (
+                                    <ActivityIndicator size="small" color="#2563eb" />
+                                ) : (
+                                    <Text style={localStyles.loadMoreText}>Load More</Text>
+                                )}
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
+            </ScrollView>
+        </View>
     );
 }
 
@@ -206,5 +317,56 @@ const authStyles = StyleSheet.create({
     buttonText: {
         color: "#fff",
         fontWeight: "700",
+    },
+});
+
+const localStyles = StyleSheet.create({
+    centerCard: {
+        alignItems: "center",
+        paddingVertical: 32,
+        borderWidth: 1,
+        borderColor: "#e5e7eb",
+        borderRadius: 12,
+        backgroundColor: "#fff",
+        gap: 8,
+    },
+    centerText: {
+        color: "#6b7280",
+        fontSize: 14,
+    },
+    errorBanner: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        backgroundColor: "#fef2f2",
+        borderWidth: 1,
+        borderColor: "#fecaca",
+        borderRadius: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 10,
+    },
+    errorText: {
+        color: "#991b1b",
+        fontSize: 13,
+        flexShrink: 1,
+        marginRight: 12,
+    },
+    retryText: {
+        color: "#2563eb",
+        fontWeight: "600",
+        fontSize: 13,
+    },
+    loadMoreButton: {
+        alignItems: "center",
+        paddingVertical: 12,
+        borderWidth: 1,
+        borderColor: "#e5e7eb",
+        borderRadius: 10,
+        backgroundColor: "#fff",
+    },
+    loadMoreText: {
+        color: "#2563eb",
+        fontWeight: "600",
+        fontSize: 14,
     },
 });
