@@ -16,6 +16,7 @@ type EventItem = {
 
 const FETCH_TIMEOUT = 8000;
 const REALTIME_REFRESH_MS = 5000;
+const MAX_VISIBLE_LOGS = 8;
 
 function buildApiUrl(baseUrl: string, path: string): string {
     const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
@@ -80,14 +81,28 @@ export default function Events() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     
-    const dedupeConsecutive = useCallback((items: EventItem[]): EventItem[] => {
-        const result: EventItem[] = [];
-        for (const item of items) {
-            const prev = result[result.length - 1];
+    const mergeAndSortEvents = useCallback((existing: EventItem[], incoming: EventItem[]) => {
+        const byId = new Map<string, EventItem>();
+        for (const item of existing) byId.set(item.id, item);
+        for (const item of incoming) byId.set(item.id, item);
+
+        const sorted = Array.from(byId.values()).sort((a, b) => {
+            const at = Date.parse(a.rawTimestamp);
+            const bt = Date.parse(b.rawTimestamp);
+            if (Number.isNaN(at) && Number.isNaN(bt)) return 0;
+            if (Number.isNaN(at)) return 1;
+            if (Number.isNaN(bt)) return -1;
+            return bt - at;
+        });
+
+        const deduped: EventItem[] = [];
+        for (const item of sorted) {
+            const prev = deduped[deduped.length - 1];
             if (prev && prev.state === item.state) continue;
-            result.push(item);
+            deduped.push(item);
         }
-        return result;
+
+        return deduped.slice(0, MAX_VISIBLE_LOGS);
     }, []);
 
     const headers = useCallback(() => {
@@ -116,15 +131,11 @@ export default function Events() {
 
             const data = await response.json();
             const mapped = (data.items || []).map(mapAuditLog).filter(Boolean) as EventItem[];
-            const sorted = mapped.sort((a, b) => {
-                const at = Date.parse(a.rawTimestamp);
-                const bt = Date.parse(b.rawTimestamp);
-                if (Number.isNaN(at) && Number.isNaN(bt)) return 0;
-                if (Number.isNaN(at)) return 1;
-                if (Number.isNaN(bt)) return -1;
-                return bt - at;
-            });
-            setEvents(dedupeConsecutive(sorted));
+            if (background) {
+                setEvents((prev) => mergeAndSortEvents(prev, mapped));
+            } else {
+                setEvents(mergeAndSortEvents([], mapped));
+            }
         } catch (e: any) {
             if (e.name === "AbortError") {
                 setError("Server unreachable");
@@ -134,9 +145,10 @@ export default function Events() {
         } finally {
             setLoading(false);
         }
-    }, [deviceId, authToken, apiBaseUrl, headers, dedupeConsecutive]);
+    }, [deviceId, authToken, apiBaseUrl, headers, mergeAndSortEvents]);
 
     useEffect(() => {
+        setEvents([]);
         fetchEvents(false);
     }, [fetchEvents]);
 
