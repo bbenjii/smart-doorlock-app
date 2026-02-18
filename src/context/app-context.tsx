@@ -59,17 +59,43 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         return headers;
     }, [authToken]);
 
-    const httpLock = () => {
+    const httpLock = async () => {
         if (!deviceId) return;
         const url = `${base_url}send-command/${deviceId}/LOCK`;
-        return fetch(url, { method: "POST", headers: authHeaders() });
+        try {
+            const response = await fetch(url, { method: "POST", headers: authHeaders() });
+            const body = await response.json().catch(() => ({}));
+            if (response.ok && body?.ok) {
+                setIsLocked(true);
+                setTimeout(() => {
+                    httpGetLockStatus();
+                }, 1000);
+            }
+            return body;
+        } catch (e) {
+            console.log("Lock command error:", e);
+            throw e;
+        }
     };
 
-    const httpUnlock = () => {
+    const httpUnlock = async () => {
         if (!deviceId) return;
         const url = `${base_url}send-command/${deviceId}/UNLOCK`;
         console.log("Sending unlock command to:", url);
-        return fetch(url, { method: "POST", headers: authHeaders() });
+        try {
+            const response = await fetch(url, { method: "POST", headers: authHeaders() });
+            const body = await response.json().catch(() => ({}));
+            if (response.ok && body?.ok) {
+                setIsLocked(false);
+                setTimeout(() => {
+                    httpGetLockStatus();
+                }, 1000);
+            }
+            return body;
+        } catch (e) {
+            console.log("Unlock command error:", e);
+            throw e;
+        }
     };
 
     const httpGetLockStatus = () => {
