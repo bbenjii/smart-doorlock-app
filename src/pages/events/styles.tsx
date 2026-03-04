@@ -9,7 +9,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         paddingTop: 16,
         paddingBottom: 96,
-        gap: 16,
+        gap: 12,
     },
     header: {
         borderBottomWidth: StyleSheet.hairlineWidth,
@@ -26,35 +26,61 @@ const styles = StyleSheet.create({
         color: "#6b7280",
         fontSize: 14,
     },
-    filters: {
+
+    // ─── Top-level tab bar (All | Events | Logs) ──────────────────
+    tabBar: {
         flexDirection: "row",
-        columnGap: 8,
+        borderBottomWidth: 1.5,
+        borderBottomColor: "#e5e7eb",
     },
-    filterPill: {
+    tabItem: {
         flex: 1,
         paddingVertical: 10,
-        borderRadius: 12,
+        alignItems: "center",
+        borderBottomWidth: 2,
+        borderBottomColor: "transparent",
+        marginBottom: -1.5,
+    },
+    tabItemActive: {
+        borderBottomColor: "#4f46e5",
+    },
+    tabText: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: "#6b7280",
+    },
+    tabTextActive: {
+        color: "#4f46e5",
+    },
+
+    // ─── Sub-filter chips inside Events tab ───────────────────────
+    subFilters: {
+        flexDirection: "row",
+        gap: 8,
+    },
+    subFilterPill: {
+        flex: 1,
+        paddingVertical: 7,
+        borderRadius: 20,
         alignItems: "center",
         borderWidth: 1,
-    },
-    filterPillActive: {
-        backgroundColor: "#e0e7ff",
-        borderColor: "#4f46e5",
-    },
-    filterPillInactive: {
-        backgroundColor: "#f4f4f5",
         borderColor: "#e5e7eb",
+        backgroundColor: "#f9fafb",
     },
-    filterText: {
-        fontSize: 13,
+    subFilterPillActive: {
+        backgroundColor: "#ede9fe",
+        borderColor: "#7c3aed",
+    },
+    subFilterText: {
+        fontSize: 12,
         fontWeight: "600",
+        color: "#6b7280",
     },
-    filterTextActive: {
-        color: "#312e81",
+    subFilterTextActive: {
+        color: "#5b21b6",
     },
-    filterTextInactive: {
-        color: "#4b5563",
-    },
+
+    // ─── Cards ────────────────────────────────────────────────────
     list: {
         rowGap: 12,
     },
@@ -84,7 +110,7 @@ const styles = StyleSheet.create({
     },
     cardContent: {
         flex: 1,
-        rowGap: 6,
+        rowGap: 4,
     },
     cardHeader: {
         flexDirection: "row",
@@ -92,21 +118,25 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     cardTitle: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: "600",
         color: "#111827",
+        flex: 1,
+        marginRight: 8,
     },
     cardDescription: {
         color: "#4b5563",
-        fontSize: 14,
+        fontSize: 13,
     },
     cardTimestamp: {
-        color: "#6b7280",
+        color: "#9ca3af",
         fontSize: 12,
     },
+
+    // ─── Badges ───────────────────────────────────────────────────
     alertBadge: {
         paddingHorizontal: 8,
-        paddingVertical: 4,
+        paddingVertical: 3,
         borderRadius: 999,
         backgroundColor: "#fee2e2",
     },
@@ -115,6 +145,19 @@ const styles = StyleSheet.create({
         fontWeight: "700",
         fontSize: 11,
     },
+    logBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 999,
+        backgroundColor: "#e0e7ff",
+    },
+    logText: {
+        color: "#3730a3",
+        fontWeight: "700",
+        fontSize: 11,
+    },
+
+    // ─── Empty / loading state ────────────────────────────────────
     emptyState: {
         alignItems: "center",
         paddingVertical: 32,
@@ -130,6 +173,7 @@ const styles = StyleSheet.create({
     },
     emptySubtitle: {
         color: "#6b7280",
+        fontSize: 13,
     },
 });
 

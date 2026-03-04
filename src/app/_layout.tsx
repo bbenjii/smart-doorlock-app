@@ -1,9 +1,9 @@
 import { Stack } from "expo-router";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import { StyleSheet, View } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import Navbar from "../components/navbar/navbar";
 import {BleProvider} from "@/src/context/ble-context";
-import {AppProvider} from "@/src/context/app-context";
+import {AppProvider} from "../context/app-context";
 
 export default function RootLayout() {
     return (
@@ -15,7 +15,7 @@ export default function RootLayout() {
                             <Stack
                                 screenOptions={{
                                     headerShown: false,
-                                    animation: "fade",
+                                    animation: Platform.OS === "web" ? "none" : "fade",
                                     animationDuration: 120,
                                     contentStyle: styles.content,
                                 }}

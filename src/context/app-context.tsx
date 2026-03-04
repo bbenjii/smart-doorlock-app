@@ -22,6 +22,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const [isLocked, setIsLocked] = useState(false);
     const [toastVisible, setToastVisible] = useState(false);
     const [isDeviceConnected, setIsDeviceConnected] = useState(false);
+    const [lastWsEvent, setLastWsEvent] = useState<any>(null);
     const [toastContent, setToastContent] = useState<{
         title: string;
         message: string;
@@ -172,6 +173,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                     if (typeof data.status === "string") {
                         setIsLocked(data.status === "LOCKED");
                     }
+                } else if (data.type === "event") {
+                    setLastWsEvent(data);
                 }
             } catch (e) {
                 console.log("WS message parse error:", e);
@@ -347,6 +350,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const contextValue = {
         user,
         deviceId,
+        apiBaseUrl: base_url,
         httpLock,
         httpUnlock,
         isLocked,
@@ -356,7 +360,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         authToken,
         isWebBrowser,
         cameraBaseUrl: getCameraBaseUrl(),
-        isDeviceConnected, // <- now reflects WS status
+        isDeviceConnected,
+        lastWsEvent,
     };
 
     return (

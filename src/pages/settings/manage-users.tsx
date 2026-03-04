@@ -1,7 +1,8 @@
 import React, { useCallback, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
-import { AppContext } from "@/src/context/app-context";
+import { AppContext } from "../../context/app-context";
+import { useRouter } from "expo-router";
 
 const VALID_METHODS = ["face", "fingerprint", "keypad", "bluetooth"] as const;
 type AuthMethod = (typeof VALID_METHODS)[number];
@@ -18,23 +19,23 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     guest: ["Lock", "Unlock"],
 };
 
-const FETCH_TIMEOUT = 8000;
-
 type CredentialState = Record<AuthMethod, boolean>;
 
 export default function ManageUsers() {
-    const { user, authToken, deviceId } = useContext(AppContext);
+    const { user, authToken, deviceId, apiBaseUrl } = useContext(AppContext);
+    const router = useRouter();
     const [credentials, setCredentials] = useState<CredentialState>({
         face: false,
         fingerprint: false,
         keypad: false,
         bluetooth: false,
     });
+    const [keypadHasCode, setKeypadHasCode] = useState(false);
+    const [fingerprintCount, setFingerprintCount] = useState(0);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [togglingMethod, setTogglingMethod] = useState<AuthMethod | null>(null);
 
-    const BASE_URL = "http://192.168.2.208:8000/";
+    const BASE_URL = apiBaseUrl || "https://smart-doorlock-server-851342133148.europe-west1.run.app/";
 
     const headers = useCallback(() => {
         const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -49,15 +50,10 @@ export default function ManageUsers() {
             return;
         }
         setLoading(true);
-        setError(null);
         try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
             const response = await fetch(`${BASE_URL}credentials/me`, {
                 headers: headers(),
-                signal: controller.signal,
             });
-            clearTimeout(timer);
 
             if (!response.ok) throw new Error("Failed to load credentials");
             const data = await response.json();
@@ -68,8 +64,10 @@ export default function ManageUsers() {
                 keypad: methods.keypad?.isActive ?? false,
                 bluetooth: methods.bluetooth?.isActive ?? false,
             });
+            setKeypadHasCode(methods.keypad?.data?.hasCode ?? false);
+            setFingerprintCount(methods.fingerprint?.data?.count ?? 0);
         } catch (e: any) {
-            setError(e.name === "AbortError" ? "Server unreachable" : (e.message || "Failed to load"));
+            console.log("Credentials fetch error:", e);
         } finally {
             setLoading(false);
         }
@@ -81,22 +79,26 @@ export default function ManageUsers() {
 
     // Toggle a credential method on/off
     const toggleMethod = async (method: AuthMethod, enable: boolean) => {
+        if (method === "keypad" && enable && !keypadHasCode) {
+            router.push("/settings/keypad-pin");
+            return;
+        }
+        if (method === "fingerprint" && enable && fingerprintCount === 0) {
+            router.push("/settings/fingerprints");
+            return;
+        }
+
         const prev = credentials[method];
         setCredentials((c) => ({ ...c, [method]: enable }));
         setTogglingMethod(method);
 
         try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-
             const endpoint = enable ? "enroll" : "revoke";
             const response = await fetch(`${BASE_URL}credentials/me/${endpoint}`, {
                 method: "POST",
                 headers: headers(),
                 body: JSON.stringify({ method }),
-                signal: controller.signal,
             });
-            clearTimeout(timer);
 
             if (!response.ok) {
                 const body = await response.json().catch(() => ({}));
@@ -105,7 +107,7 @@ export default function ManageUsers() {
         } catch (e: any) {
             // Rollback
             setCredentials((c) => ({ ...c, [method]: prev }));
-            setError(e.message || "Failed to update credential");
+            console.log("Credential toggle error:", e);
         } finally {
             setTogglingMethod(null);
         }
@@ -166,14 +168,6 @@ export default function ManageUsers() {
                     </View>
                 ) : (
                     <>
-                        {error && (
-                            <View style={localStyles.errorBanner}>
-                                <Text style={localStyles.errorText}>{error}</Text>
-                                <TouchableOpacity onPress={fetchCredentials}>
-                                    <Text style={{ color: "#2563eb", fontWeight: "600", fontSize: 13 }}>Retry</Text>
-                                </TouchableOpacity>
-                            </View>
-                        )}
                         <View style={[styles.card, styles.divide]}>
                             {VALID_METHODS.map((method) => {
                                 const info = METHOD_LABELS[method];
@@ -189,14 +183,48 @@ export default function ManageUsers() {
                                                 <Text style={styles.rowSubtitle}>{info.description}</Text>
                                             </View>
                                         </View>
-                                        {isToggling ? (
-                                            <ActivityIndicator size="small" color="#2563eb" />
-                                        ) : (
-                                            <Switch
-                                                value={credentials[method]}
-                                                onValueChange={(v) => toggleMethod(method, v)}
-                                            />
-                                        )}
+                                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                                            {method === "keypad" && (
+                                                <TouchableOpacity
+                                                    onPress={() => router.push("/settings/keypad-pin")}
+                                                    style={{
+                                                        paddingHorizontal: 10,
+                                                        paddingVertical: 4,
+                                                        borderRadius: 8,
+                                                        borderWidth: 1,
+                                                        borderColor: "#ec4899",
+                                                    }}
+                                                >
+                                                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#ec4899" }}>
+                                                        {keypadHasCode ? "Change PIN" : "Set PIN"}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            )}
+                                            {method === "fingerprint" && (
+                                                <TouchableOpacity
+                                                    onPress={() => router.push("/settings/fingerprints")}
+                                                    style={{
+                                                        paddingHorizontal: 10,
+                                                        paddingVertical: 4,
+                                                        borderRadius: 8,
+                                                        borderWidth: 1,
+                                                        borderColor: "#8b5cf6",
+                                                    }}
+                                                >
+                                                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#8b5cf6" }}>
+                                                        {fingerprintCount > 0 ? `Manage (${fingerprintCount})` : "Add"}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            )}
+                                            {isToggling ? (
+                                                <ActivityIndicator size="small" color="#2563eb" />
+                                            ) : (
+                                                <Switch
+                                                    value={credentials[method]}
+                                                    onValueChange={(v) => toggleMethod(method, v)}
+                                                />
+                                            )}
+                                        </View>
                                     </View>
                                 );
                             })}
@@ -254,21 +282,10 @@ const localStyles = {
         color: "#374151",
         overflow: "hidden" as const,
     },
-    errorBanner: {
+    keypadPinCard: {
         flexDirection: "row" as const,
         justifyContent: "space-between" as const,
         alignItems: "center" as const,
-        backgroundColor: "#fef2f2",
-        borderWidth: 1,
-        borderColor: "#fecaca",
-        borderRadius: 10,
-        padding: 12,
-        marginBottom: 8,
-    },
-    errorText: {
-        color: "#991b1b",
-        fontSize: 13,
-        flexShrink: 1,
-        marginRight: 12,
+        marginTop: 8,
     },
 };

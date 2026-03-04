@@ -1,7 +1,7 @@
 import React, { useContext, useState } from "react";
 import { ScrollView, Switch, Text, View } from "react-native";
 import styles from "./styles";
-import { AppContext } from "@/src/context/app-context";
+import { AppContext } from "../../context/app-context";
 
 export default function SecurityPrivacy() {
     const { deviceId } = useContext(AppContext);

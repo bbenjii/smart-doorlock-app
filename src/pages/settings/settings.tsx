@@ -1,7 +1,7 @@
-import React, { ReactNode, useState, useContext } from "react";
+import React, { ReactNode, useContext } from "react";
 import { ActivityIndicator, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
-import { AppContext } from "@/src/context/app-context";
+import { AppContext } from "../../context/app-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import SigninForm from "@/src/pages/settings/signInForm";
@@ -10,31 +10,17 @@ import { useSettings } from "@/src/hooks/useSettings";
 export default function Settings() {
     const { user, deviceId, signout, isDeviceConnected } = useContext(AppContext);
     const router = useRouter();
-    const { settings, loading, error, updatingKeys, updateSetting, refetch } = useSettings();
-    const [settingsError, setSettingsError] = useState<string | null>(null);
-    const [retrying, setRetrying] = useState(false);
+    const { settings, loading, updatingKeys, updateSetting, refetch } = useSettings();
 
     useFocusEffect(() => {
         refetch();
     });
 
     const handleToggle = async (key: keyof typeof settings, value: boolean) => {
-        setSettingsError(null);
         try {
             await updateSetting(key, value);
-        } catch (e: any) {
-            setSettingsError(e.message || "Failed to update setting");
-        }
+        } catch (_e: any) {}
     };
-
-    const handleRetry = async () => {
-        setRetrying(true);
-        setSettingsError(null);
-        await refetch();
-        setRetrying(false);
-    };
-
-    const isOffline = !!error;
 
     return (
         <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
@@ -69,23 +55,6 @@ export default function Settings() {
                             </View>
                         ) : (
                             <>
-                                {isOffline && (
-                                    <View style={offlineStyles.banner}>
-                                        <Text style={offlineStyles.bannerText}>{error}</Text>
-                                        <TouchableOpacity
-                                            onPress={handleRetry}
-                                            style={offlineStyles.updateButton}
-                                            disabled={retrying}
-                                        >
-                                            {retrying ? (
-                                                <ActivityIndicator size="small" color="#fff" />
-                                            ) : (
-                                                <Text style={offlineStyles.updateButtonText}>Update</Text>
-                                            )}
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-
                                 <View style={[styles.card, styles.divide]}>
                                     <SettingToggle
                                         icon={<CircleIcon label="N" color="#2563eb" />}
@@ -94,16 +63,9 @@ export default function Settings() {
                                         value={settings.notisEnabled}
                                         onValueChange={(v) => handleToggle("notisEnabled", v)}
                                         updating={updatingKeys.has("notisEnabled")}
-                                        disabled={isOffline}
                                     />
                                 </View>
                             </>
-                        )}
-
-                        {settingsError && (
-                            <Text style={{ color: "#b91c1c", fontSize: 13, marginTop: 6, marginLeft: 4 }}>
-                                {settingsError}
-                            </Text>
                         )}
                     </View>
 
@@ -171,11 +133,10 @@ type SettingToggleProps = {
     value: boolean;
     onValueChange: (value: boolean) => void;
     updating?: boolean;
-    disabled?: boolean;
 };
 
-const SettingToggle = ({ icon, title, subtitle, value, onValueChange, updating, disabled }: SettingToggleProps) => (
-    <View style={[styles.settingToggleRow, disabled && { opacity: 0.5 }]}>
+const SettingToggle = ({ icon, title, subtitle, value, onValueChange, updating }: SettingToggleProps) => (
+    <View style={styles.settingToggleRow}>
         <View style={styles.rowCenter}>
             {icon}
             <View style={{ flexShrink: 1 }}>
@@ -183,7 +144,7 @@ const SettingToggle = ({ icon, title, subtitle, value, onValueChange, updating, 
                 <Text style={styles.rowSubtitle}>{subtitle}</Text>
             </View>
         </View>
-        {updating ? <ActivityIndicator size="small" color="#2563eb" /> : <Switch value={value} onValueChange={onValueChange} disabled={disabled} />}
+        {updating ? <ActivityIndicator size="small" color="#2563eb" /> : <Switch value={value} onValueChange={onValueChange} />}
     </View>
 );
 
@@ -220,37 +181,3 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
         <Text style={styles.infoValue}>{value}</Text>
     </View>
 );
-
-const offlineStyles = {
-    banner: {
-        flexDirection: "row" as const,
-        alignItems: "center" as const,
-        justifyContent: "space-between" as const,
-        backgroundColor: "#fef2f2",
-        borderWidth: 1,
-        borderColor: "#fecaca",
-        borderRadius: 10,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        marginBottom: 8,
-    },
-    bannerText: {
-        color: "#991b1b",
-        fontSize: 13,
-        flexShrink: 1,
-        marginRight: 12,
-    },
-    updateButton: {
-        backgroundColor: "#2563eb",
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-        minWidth: 72,
-        alignItems: "center" as const,
-    },
-    updateButtonText: {
-        color: "#fff",
-        fontWeight: "700" as const,
-        fontSize: 13,
-    },
-};
