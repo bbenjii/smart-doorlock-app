@@ -32,6 +32,7 @@ export default function ManageUsers() {
     });
     const [keypadHasCode, setKeypadHasCode] = useState(false);
     const [fingerprintCount, setFingerprintCount] = useState(0);
+    const [faceHasEnrollment, setFaceHasEnrollment] = useState(false);
     const [loading, setLoading] = useState(true);
     const [togglingMethod, setTogglingMethod] = useState<AuthMethod | null>(null);
 
@@ -66,6 +67,7 @@ export default function ManageUsers() {
             });
             setKeypadHasCode(methods.keypad?.data?.hasCode ?? false);
             setFingerprintCount(methods.fingerprint?.data?.count ?? 0);
+            setFaceHasEnrollment(methods.face?.hasEnrollment ?? false);
         } catch (e: any) {
             console.log("Credentials fetch error:", e);
         } finally {
@@ -79,6 +81,10 @@ export default function ManageUsers() {
 
     // Toggle a credential method on/off
     const toggleMethod = async (method: AuthMethod, enable: boolean) => {
+        if (method === "face" && enable && !faceHasEnrollment) {
+            router.push("./face-access");
+            return;
+        }
         if (method === "keypad" && enable && !keypadHasCode) {
             router.push("/settings/keypad-pin");
             return;
@@ -213,6 +219,22 @@ export default function ManageUsers() {
                                                 >
                                                     <Text style={{ fontSize: 12, fontWeight: "600", color: "#8b5cf6" }}>
                                                         {fingerprintCount > 0 ? `Manage (${fingerprintCount})` : "Add"}
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            )}
+                                            {method === "face" && (
+                                                <TouchableOpacity
+                                                    onPress={() => router.push("./face-access")}
+                                                    style={{
+                                                        paddingHorizontal: 10,
+                                                        paddingVertical: 4,
+                                                        borderRadius: 8,
+                                                        borderWidth: 1,
+                                                        borderColor: "#f97316",
+                                                    }}
+                                                >
+                                                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#f97316" }}>
+                                                        {faceHasEnrollment ? "Manage" : "Enroll"}
                                                     </Text>
                                                 </TouchableOpacity>
                                             )}

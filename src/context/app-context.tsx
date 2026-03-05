@@ -39,7 +39,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const wsRef = useRef<WebSocket | null>(null);
     const previousLockState = useRef<boolean | null>(null);
 
-    // NEW: reconnection state
+    // reconnection state
     const reconnectAttemptsRef = useRef(0);
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -126,7 +126,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         setDeviceId(fallbackDeviceId);
     }, []);
 
-    // ========== WebSocket connection + async reconnection ==========
+    // WebSocket connection + async reconnection
     const connectWebSocket = useCallback(() => {
         if (!deviceId) {
             console.log("WS: no deviceId, skipping connect");
@@ -173,7 +173,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                     if (typeof data.status === "string") {
                         setIsLocked(data.status === "LOCKED");
                     }
-                } else if (data.type === "event") {
+                } else if (data.type) {
                     setLastWsEvent(data);
                 }
             } catch (e) {
@@ -251,8 +251,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
         setIsDeviceConnected(false);
     };
-
-    // signin / signup code unchanged ...
 
     const signin = async (email: string, password: string) => {
         if(email=== "test" && password === "test"){
