@@ -1,4 +1,4 @@
-import React, { ReactNode, useContext } from "react";
+import React, { ReactNode, useCallback, useContext, useEffect, useState } from "react";
 import { ActivityIndicator, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
 import { AppContext } from "../../context/app-context";
@@ -7,19 +7,107 @@ import { useRouter } from "expo-router";
 import SigninForm from "@/src/pages/settings/signInForm";
 import { useSettings } from "@/src/hooks/useSettings";
 
+const NOTIFICATION_EVENT_OPTIONS = [
+    { key: "FORCED_ENTRY", label: "Forced Entry" },
+    { key: "FAILED_AUTH", label: "Failed Auth Attempts" },
+    { key: "BATTERY_LOW", label: "Battery Low" },
+    { key: "DEVICE_OFFLINE", label: "Device Offline" },
+    { key: "DOORBELL_PRESSED", label: "Doorbell Pressed" },
+    { key: "WINDOW_SENSOR_TRIGGERED", label: "Window Sensor Triggered" },
+] as const;
+
+const DEFAULT_NOTIFICATION_EVENTS = NOTIFICATION_EVENT_OPTIONS.map((item) => item.key);
+
 export default function Settings() {
-    const { user, deviceId, signout, isDeviceConnected } = useContext(AppContext);
+    const { user, deviceId, setDeviceId, signout, isDeviceConnected, authToken, apiBaseUrl } = useContext(AppContext);
     const router = useRouter();
     const { settings, loading, updatingKeys, updateSetting, refetch } = useSettings();
+    const [devices, setDevices] = useState<Array<{ deviceId: string; accessLevel: string }>>([]);
+    const [enabledNotifications, setEnabledNotifications] = useState<string[]>(DEFAULT_NOTIFICATION_EVENTS);
+    const [prefsLoading, setPrefsLoading] = useState(false);
+    const [prefsSaving, setPrefsSaving] = useState(false);
+    const BASE_URL = apiBaseUrl || "https://smart-doorlock-server-851342133148.europe-west1.run.app/";
 
-    useFocusEffect(() => {
-        refetch();
-    });
+    useFocusEffect(
+        useCallback(() => {
+            refetch();
+        }, [refetch]),
+    );
+
+    const authHeaders = useCallback(() => {
+        const h: Record<string, string> = {};
+        if (authToken) h.Authorization = `Bearer ${authToken}`;
+        return h;
+    }, [authToken]);
+
+    const fetchDevices = useCallback(async () => {
+        if (!authToken) return;
+        try {
+            const res = await fetch(`${BASE_URL}devices/me`, { headers: authHeaders() });
+            if (!res.ok) return;
+            const body = await res.json();
+            setDevices((body.devices || []).map((d: any) => ({ deviceId: d.deviceId, accessLevel: d.accessLevel })));
+        } catch (_e) {}
+    }, [authToken, BASE_URL, authHeaders]);
+
+    useEffect(() => {
+        fetchDevices();
+    }, [fetchDevices]);
+
+    const fetchNotificationPreferences = useCallback(async () => {
+        if (!authToken || !deviceId) return;
+        try {
+            setPrefsLoading(true);
+            const res = await fetch(`${BASE_URL}notifications/preferences/${deviceId}`, { headers: authHeaders() });
+            if (!res.ok) return;
+            const body = await res.json();
+            const values = Array.isArray(body?.enabledNotifications) ? body.enabledNotifications : DEFAULT_NOTIFICATION_EVENTS;
+            setEnabledNotifications(values);
+        } catch (_e) {
+            setEnabledNotifications(DEFAULT_NOTIFICATION_EVENTS);
+        } finally {
+            setPrefsLoading(false);
+        }
+    }, [authToken, deviceId, BASE_URL, authHeaders]);
+
+    useEffect(() => {
+        fetchNotificationPreferences();
+    }, [fetchNotificationPreferences]);
+
+    const saveNotificationPreferences = useCallback(async (values: string[]) => {
+        if (!authToken || !deviceId) return;
+        setPrefsSaving(true);
+        try {
+            await fetch(`${BASE_URL}notifications/preferences/${deviceId}`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...authHeaders(),
+                },
+                body: JSON.stringify({ enabledNotifications: values }),
+            });
+        } finally {
+            setPrefsSaving(false);
+        }
+    }, [authToken, deviceId, BASE_URL, authHeaders]);
 
     const handleToggle = async (key: keyof typeof settings, value: boolean) => {
         try {
             await updateSetting(key, value);
+            if (key === "notisEnabled") {
+                const next = value ? (enabledNotifications.length ? enabledNotifications : DEFAULT_NOTIFICATION_EVENTS) : [];
+                setEnabledNotifications(next);
+                await saveNotificationPreferences(next);
+            }
         } catch (_e: any) {}
+    };
+
+    const toggleNotificationType = async (eventKey: string, enabled: boolean) => {
+        const next = enabled
+            ? Array.from(new Set([...enabledNotifications, eventKey]))
+            : enabledNotifications.filter((item) => item !== eventKey);
+        setEnabledNotifications(next);
+        await saveNotificationPreferences(next);
     };
 
     return (
@@ -64,6 +152,32 @@ export default function Settings() {
                                         onValueChange={(v) => handleToggle("notisEnabled", v)}
                                         updating={updatingKeys.has("notisEnabled")}
                                     />
+                                    {settings.notisEnabled ? (
+                                        <View style={{ paddingTop: 12 }}>
+                                            <Text style={styles.rowSubtitle}>Notification Types</Text>
+                                            <View style={{ marginTop: 8, gap: 8 }}>
+                                                {NOTIFICATION_EVENT_OPTIONS.map((item) => (
+                                                    <View key={item.key} style={styles.settingToggleRow}>
+                                                        <Text style={styles.rowTitle}>{item.label}</Text>
+                                                        {prefsLoading || prefsSaving ? (
+                                                            <ActivityIndicator size="small" color="#2563eb" />
+                                                        ) : (
+                                                            <Switch
+                                                                value={enabledNotifications.includes(item.key)}
+                                                                onValueChange={(v) => toggleNotificationType(item.key, v)}
+                                                            />
+                                                        )}
+                                                    </View>
+                                                ))}
+                                            </View>
+                                        </View>
+                                    ) : (
+                                        <View style={{ paddingTop: 12 }}>
+                                            <Text style={styles.rowSubtitle}>
+                                                Notifications are off for this device.
+                                            </Text>
+                                        </View>
+                                    )}
                                 </View>
                             </>
                         )}
@@ -114,6 +228,30 @@ export default function Settings() {
                     <View style={[styles.card, styles.systemInfo]}>
                         <InfoRow label="Device ID" value={deviceId || "—"} />
                     </View>
+
+                    {devices.length > 1 ? (
+                        <View style={styles.card}>
+                            <Text style={styles.sectionTitle}>Switch Device</Text>
+                            <View style={{ gap: 8, marginTop: 8 }}>
+                                {devices.map((d) => (
+                                    <TouchableOpacity
+                                        key={d.deviceId}
+                                        style={[
+                                            styles.linkRow,
+                                            deviceId === d.deviceId ? { borderColor: "#2563eb", borderWidth: 1, borderRadius: 10 } : null,
+                                        ]}
+                                        onPress={() => setDeviceId?.(d.deviceId)}
+                                    >
+                                        <View>
+                                            <Text style={styles.rowTitle}>{d.deviceId}</Text>
+                                            <Text style={styles.rowSubtitle}>{d.accessLevel}</Text>
+                                        </View>
+                                        <Text style={styles.chevronText}>{deviceId === d.deviceId ? "✓" : "›"}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+                    ) : null}
 
                     <TouchableOpacity style={[styles.button, styles.buttonGhost]} onPress={signout} activeOpacity={0.7}>
                         <Text style={styles.buttonGhostText}>Sign Out</Text>

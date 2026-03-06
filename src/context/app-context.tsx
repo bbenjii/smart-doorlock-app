@@ -2,9 +2,18 @@ import { createContext, ReactNode, useEffect, useRef, useState, useCallback } fr
 import { Toast } from "@/src/components/toast";
 import { AppStorage } from "@/src/hooks/useAppStorage";
 import { Platform } from "react-native";
+import * as ExpoDevice from "expo-device";
 // import Config from 'react-native-config';
 
 export const AppContext = createContext<any>(null);
+
+let notificationsModule: any | null = null;
+try {
+    // Lazy optional native module; avoids crash when current build doesn't include expo-notifications yet.
+    notificationsModule = require("expo-notifications");
+} catch (_e) {
+    notificationsModule = null;
+}
 
 // const EXPO_PUBLIC_API_URL="http://192.168.2.208:8000/"
 const EXPO_PUBLIC_API_URL="https://smart-doorlock-server-851342133148.europe-west1.run.app/"
@@ -42,6 +51,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     // reconnection state
     const reconnectAttemptsRef = useRef(0);
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pushTokenRef = useRef<string | null>(null);
 
     const clearReconnectTimeout = () => {
         if (reconnectTimeoutRef.current) {
@@ -57,6 +67,60 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
         return headers;
     }, [authToken]);
+
+    const registerPushToken = useCallback(async () => {
+        if (!authToken || isWebBrowser || !notificationsModule) return;
+        try {
+            const currentPerms = await notificationsModule.getPermissionsAsync();
+            let granted = Boolean(currentPerms?.granted);
+            if (!granted) {
+                const asked = await notificationsModule.requestPermissionsAsync();
+                granted = Boolean(asked?.granted);
+            }
+            if (!granted) return;
+
+            const tokenResp = await notificationsModule.getDevicePushTokenAsync();
+            const token = typeof tokenResp?.data === "string" ? tokenResp.data : "";
+            if (!token || token === pushTokenRef.current) return;
+
+            const response = await fetch(`${base_url}notifications/fcm-token`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...authHeaders(),
+                },
+                body: JSON.stringify({
+                    fcmToken: token,
+                    deviceName: ExpoDevice.modelName || "unknown",
+                    platform: Platform.OS,
+                }),
+            });
+
+            if (response.ok) {
+                pushTokenRef.current = token;
+            }
+        } catch (e) {
+            console.log("Push token registration failed:", e);
+        }
+    }, [authToken, isWebBrowser, base_url, authHeaders]);
+
+    const unregisterPushToken = useCallback(async () => {
+        if (!authToken || !pushTokenRef.current || isWebBrowser || !notificationsModule) return;
+        try {
+            await fetch(`${base_url}notifications/fcm-token`, {
+                method: "DELETE",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...authHeaders(),
+                },
+                body: JSON.stringify({ fcmToken: pushTokenRef.current }),
+            });
+        } catch (e) {
+            console.log("Push token unregister failed:", e);
+        } finally {
+            pushTokenRef.current = null;
+        }
+    }, [authToken, isWebBrowser, base_url, authHeaders]);
 
     const httpLock = () => {
         if (!deviceId) return;
@@ -238,7 +302,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         };
     }, [deviceId, connectWebSocket]);
 
+    useEffect(() => {
+        if (!authToken) return;
+        registerPushToken();
+    }, [authToken, registerPushToken]);
+
     const signout = () => {
+        unregisterPushToken();
         AppStorage.clearSession();
         setUser(null);
         setAuthToken(null);
@@ -348,6 +418,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const contextValue = {
         user,
         deviceId,
+        setDeviceId,
         apiBaseUrl: base_url,
         httpLock,
         httpUnlock,

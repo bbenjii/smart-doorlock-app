@@ -64,7 +64,9 @@ export function useSettings() {
                 notisEnabled: data.notisEnabled ?? DEFAULTS.notisEnabled,
             });
         } catch (e: any) {
-            console.log("Settings fetch error:", e);
+            if (e?.name !== "AbortError") {
+                console.log("Settings fetch error:", e);
+            }
             setError(null);
             setSettings(DEFAULTS);
         } finally {

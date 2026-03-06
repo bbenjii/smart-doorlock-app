@@ -137,6 +137,8 @@ const LOG_ACTION_MAP: Record<string, { title: string; icon: any; tint: string }>
     },
 };
 
+const HIDDEN_LOG_ACTIONS = new Set(["ACCESS_GRANTED", "ACCESS_UPDATED"]);
+
 // ─── Helpers ────────────────────────────────────────────────────────
 function formatRelativeTime(isoString: string): string {
     const now = Date.now();
@@ -264,7 +266,9 @@ export default function Events() {
             const logsData = await logsRes.json();
 
             const eventItems = (eventsData.items ?? []).map(eventToItem);
-            const logItems = (logsData.items ?? []).map(logToItem);
+            const logItems = (logsData.items ?? [])
+                .filter((log: any) => !HIDDEN_LOG_ACTIONS.has(log?.action))
+                .map(logToItem);
 
             // Merge and sort by raw timestamp descending
             const all = [...eventItems, ...logItems].sort((a, b) =>
