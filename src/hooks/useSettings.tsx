@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useState } from "react";
-import { AppContext } from "@/src/context/app-context";
+import { AppContext } from "../context/app-context";
 
 export type DeviceSettings = {
     notisEnabled: boolean;
@@ -22,13 +22,13 @@ function fetchWithTimeout(url: string, opts: RequestInit, timeoutMs: number): Pr
 }
 
 export function useSettings() {
-    const { authToken, deviceId } = useContext(AppContext);
+    const { authToken, deviceId, apiBaseUrl } = useContext(AppContext);
     const [settings, setSettings] = useState<DeviceSettings>(DEFAULTS);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [updatingKeys, setUpdatingKeys] = useState<Set<SettingsKey>>(new Set());
 
-    const BASE_URL = "http://192.168.2.208:8000/";
+    const BASE_URL = apiBaseUrl || "https://smart-doorlock-server-851342133148.europe-west1.run.app/";
 
     const headers = useCallback(() => {
         const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -64,8 +64,10 @@ export function useSettings() {
                 notisEnabled: data.notisEnabled ?? DEFAULTS.notisEnabled,
             });
         } catch (e: any) {
-            console.log("Settings fetch error:", e);
-            setError(e.name === "AbortError" ? "Server unreachable" : (e.message || "Failed to load settings"));
+            if (e?.name !== "AbortError") {
+                console.log("Settings fetch error:", e);
+            }
+            setError(null);
             setSettings(DEFAULTS);
         } finally {
             setLoading(false);

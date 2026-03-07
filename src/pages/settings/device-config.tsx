@@ -1,7 +1,7 @@
 import {ScrollView, Text, TextInput, TouchableOpacity, View} from "react-native";
 import styles from "@/src/pages/settings/styles";
 import React, {useContext, useEffect, useState} from "react";
-import {AppContext} from "@/src/context/app-context";
+import {AppContext} from "../../context/app-context";
 import {Dialog} from "@/src/components/dialog";
 import {useBLE} from "@/src/context/ble-context";
 

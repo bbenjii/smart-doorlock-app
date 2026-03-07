@@ -35,7 +35,7 @@ function useBLEInternal() {
     const [color, setColor] = useState("white");
     const [macAddress, setMacAddress] = useState("");
     const seenDevicesRef = useRef(new Map<string, {device: Device; lastSeen: number}>());
-    const pruneTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const pruneTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const getBleManager = () => bleManager;
 
     const decodeValue = (value: string | null | undefined) =>

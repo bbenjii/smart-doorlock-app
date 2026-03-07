@@ -1,7 +1,7 @@
 import React, { useContext, useState } from "react";
 import { ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
-import { AppContext } from "@/src/context/app-context";
+import { AppContext } from "../../context/app-context";
 
 type Resolution = "480p" | "720p" | "1080p";
 type RecordingMode = "continuous" | "motion" | "off";

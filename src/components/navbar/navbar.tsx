@@ -1,12 +1,12 @@
 import {TouchableOpacity, Text, View, Image} from "react-native";
-import { usePathname, useRouter } from "expo-router";
+import { Href, usePathname, useRouter } from "expo-router";
 import styles from "./styles";
 
 const Navbar = () => {
     const router = useRouter();
     const pathname = usePathname();
 
-    const sections = [
+    const sections: { name: string; imgSrc: any; path: Href }[] = [
         {
             name: "Home",
             imgSrc: require("../../assets/images/house.png"),
@@ -35,9 +35,9 @@ const Navbar = () => {
             path: "/testing",
         }]
 
-    const handleNavigate = (path?: string) => {
+    const handleNavigate = (path?: Href) => {
         if (!path || pathname === path) return;
-        router.push(path);
+        router.replace(path);
     };
 
     return (
