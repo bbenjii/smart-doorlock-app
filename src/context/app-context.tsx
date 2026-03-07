@@ -2,18 +2,9 @@ import { createContext, ReactNode, useEffect, useRef, useState, useCallback } fr
 import { Toast } from "@/src/components/toast";
 import { AppStorage } from "@/src/hooks/useAppStorage";
 import { Platform } from "react-native";
-import * as ExpoDevice from "expo-device";
 // import Config from 'react-native-config';
 
 export const AppContext = createContext<any>(null);
-
-let notificationsModule: any | null = null;
-try {
-    // Lazy optional native module; avoids crash when current build doesn't include expo-notifications yet.
-    notificationsModule = require("expo-notifications");
-} catch (_e) {
-    notificationsModule = null;
-}
 
 // const EXPO_PUBLIC_API_URL="http://192.168.2.208:8000/"
 const EXPO_PUBLIC_API_URL="https://smart-doorlock-server-851342133148.europe-west1.run.app/"
@@ -51,7 +42,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     // reconnection state
     const reconnectAttemptsRef = useRef(0);
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const pushTokenRef = useRef<string | null>(null);
+    const notifPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const notifPrefsRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const refreshNotifGateRef = useRef<null | (() => Promise<void>)>(null);
+    const notifSeededRef = useRef(false);
+    const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+    const notifMasterEnabledRef = useRef(true);
+    const notifEnabledTypesRef = useRef<Set<string>>(new Set([
+        "FORCED_ENTRY",
+        "FAILED_AUTH",
+        "BATTERY_LOW",
+        "DEVICE_OFFLINE",
+        "DOORBELL_PRESSED",
+        "WINDOW_SENSOR_TRIGGERED",
+    ]));
 
     const clearReconnectTimeout = () => {
         if (reconnectTimeoutRef.current) {
@@ -68,59 +72,34 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         return headers;
     }, [authToken]);
 
-    const registerPushToken = useCallback(async () => {
-        if (!authToken || isWebBrowser || !notificationsModule) return;
-        try {
-            const currentPerms = await notificationsModule.getPermissionsAsync();
-            let granted = Boolean(currentPerms?.granted);
-            if (!granted) {
-                const asked = await notificationsModule.requestPermissionsAsync();
-                granted = Boolean(asked?.granted);
-            }
-            if (!granted) return;
+    const ensurePushRegistration = useCallback(async () => {
+        // APNs push is disabled in local/free-team mode.
+        return;
+    }, []);
 
-            const tokenResp = await notificationsModule.getDevicePushTokenAsync();
-            const token = typeof tokenResp?.data === "string" ? tokenResp.data : "";
-            if (!token || token === pushTokenRef.current) return;
-
-            const response = await fetch(`${base_url}notifications/fcm-token`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    ...authHeaders(),
-                },
-                body: JSON.stringify({
-                    fcmToken: token,
-                    deviceName: ExpoDevice.modelName || "unknown",
-                    platform: Platform.OS,
-                }),
-            });
-
-            if (response.ok) {
-                pushTokenRef.current = token;
-            }
-        } catch (e) {
-            console.log("Push token registration failed:", e);
+    const refreshNotificationGateNow = useCallback(async () => {
+        if (refreshNotifGateRef.current) {
+            await refreshNotifGateRef.current();
         }
-    }, [authToken, isWebBrowser, base_url, authHeaders]);
+    }, []);
 
-    const unregisterPushToken = useCallback(async () => {
-        if (!authToken || !pushTokenRef.current || isWebBrowser || !notificationsModule) return;
-        try {
-            await fetch(`${base_url}notifications/fcm-token`, {
-                method: "DELETE",
-                headers: {
-                    "Content-Type": "application/json",
-                    ...authHeaders(),
-                },
-                body: JSON.stringify({ fcmToken: pushTokenRef.current }),
-            });
-        } catch (e) {
-            console.log("Push token unregister failed:", e);
-        } finally {
-            pushTokenRef.current = null;
-        }
-    }, [authToken, isWebBrowser, base_url, authHeaders]);
+    const mapNotifTitle = (type?: string) => {
+        const t = (type || "").toUpperCase();
+        if (t === "FORCED_ENTRY") return "Forced Entry";
+        if (t === "FAILED_AUTH") return "Failed Access Attempts";
+        if (t === "BATTERY_LOW") return "Battery Low";
+        if (t === "DEVICE_OFFLINE") return "Device Offline";
+        if (t === "DOORBELL_PRESSED") return "Doorbell Pressed";
+        if (t === "WINDOW_SENSOR_TRIGGERED") return "Window Sensor Triggered";
+        return "Notification";
+    };
+
+    const mapNotifVariant = (type?: string): "danger" | "success" | "info" | "warning" | "default" => {
+        const t = (type || "").toUpperCase();
+        if (t === "FORCED_ENTRY" || t === "FAILED_AUTH") return "danger";
+        if (t === "BATTERY_LOW" || t === "DEVICE_OFFLINE") return "warning";
+        return "info";
+    };
 
     const httpLock = () => {
         if (!deviceId) return;
@@ -303,12 +282,117 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }, [deviceId, connectWebSocket]);
 
     useEffect(() => {
-        if (!authToken) return;
-        registerPushToken();
-    }, [authToken, registerPushToken]);
+        if (notifPollTimerRef.current) {
+            clearInterval(notifPollTimerRef.current);
+            notifPollTimerRef.current = null;
+        }
+        if (notifPrefsRefreshTimerRef.current) {
+            clearInterval(notifPrefsRefreshTimerRef.current);
+            notifPrefsRefreshTimerRef.current = null;
+        }
+        notifSeededRef.current = false;
+        seenNotificationIdsRef.current = new Set();
+
+        if (!authToken || !deviceId) return;
+
+        const refreshNotificationGate = async () => {
+            try {
+                const [settingsRes, prefsRes] = await Promise.all([
+                    fetch(`${base_url}settings/${deviceId}`, {
+                        method: "GET",
+                        headers: authHeaders(),
+                    }),
+                    fetch(`${base_url}notifications/preferences/${deviceId}`, {
+                        method: "GET",
+                        headers: authHeaders(),
+                    }),
+                ]);
+
+                if (settingsRes.ok) {
+                    const settings = await settingsRes.json();
+                    notifMasterEnabledRef.current = Boolean(settings?.notisEnabled ?? true);
+                }
+
+                if (prefsRes.ok) {
+                    const prefs = await prefsRes.json();
+                    const values = Array.isArray(prefs?.enabledNotifications)
+                        ? prefs.enabledNotifications
+                        : [];
+                    notifEnabledTypesRef.current = new Set(values.map((v: string) => (v || "").toUpperCase()));
+                }
+            } catch (_e) {
+                // keep previous gate values on fetch failures
+            }
+        };
+        refreshNotifGateRef.current = refreshNotificationGate;
+
+        const pollNotifications = async () => {
+            try {
+                const res = await fetch(`${base_url}notifications/${deviceId}?limit=20`, {
+                    method: "GET",
+                    headers: authHeaders(),
+                });
+                if (!res.ok) return;
+                const body = await res.json();
+                const items = Array.isArray(body?.items) ? body.items : [];
+
+                if (!notifSeededRef.current) {
+                    for (const n of items) {
+                        const id = n?.notificationId || n?.id;
+                        if (id) seenNotificationIdsRef.current.add(String(id));
+                    }
+                    notifSeededRef.current = true;
+                    return;
+                }
+
+                const newItems: any[] = [];
+                for (const n of items) {
+                    const id = n?.notificationId || n?.id;
+                    if (!id) continue;
+                    const key = String(id);
+                    if (!seenNotificationIdsRef.current.has(key)) {
+                        newItems.push(n);
+                    }
+                    seenNotificationIdsRef.current.add(key);
+                }
+
+                if (newItems.length > 0) {
+                    if (!notifMasterEnabledRef.current) return;
+                    const newest = newItems.find((n) =>
+                        notifEnabledTypesRef.current.has(String(n?.type || "").toUpperCase()),
+                    );
+                    if (!newest) return;
+                    setToastContent({
+                        title: mapNotifTitle(newest?.type),
+                        message: newest?.message || "New alert",
+                        variant: mapNotifVariant(newest?.type),
+                    });
+                    setToastVisible(true);
+                }
+            } catch (_e) {
+                // silent; polling should not break app UX
+            }
+        };
+
+        refreshNotificationGate();
+        pollNotifications();
+        notifPrefsRefreshTimerRef.current = setInterval(refreshNotificationGate, 15000);
+        notifPollTimerRef.current = setInterval(pollNotifications, 5000);
+
+        return () => {
+            refreshNotifGateRef.current = null;
+            if (notifPollTimerRef.current) {
+                clearInterval(notifPollTimerRef.current);
+                notifPollTimerRef.current = null;
+            }
+            if (notifPrefsRefreshTimerRef.current) {
+                clearInterval(notifPrefsRefreshTimerRef.current);
+                notifPrefsRefreshTimerRef.current = null;
+            }
+        };
+    }, [authToken, deviceId, base_url, authHeaders]);
 
     const signout = () => {
-        unregisterPushToken();
         AppStorage.clearSession();
         setUser(null);
         setAuthToken(null);
@@ -319,6 +403,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             wsRef.current.close();
             wsRef.current = null;
         }
+        if (notifPollTimerRef.current) {
+            clearInterval(notifPollTimerRef.current);
+            notifPollTimerRef.current = null;
+        }
+        if (notifPrefsRefreshTimerRef.current) {
+            clearInterval(notifPrefsRefreshTimerRef.current);
+            notifPrefsRefreshTimerRef.current = null;
+        }
+        notifSeededRef.current = false;
+        seenNotificationIdsRef.current = new Set();
         setIsDeviceConnected(false);
     };
 
@@ -431,6 +525,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         cameraBaseUrl: getCameraBaseUrl(),
         isDeviceConnected,
         lastWsEvent,
+        ensurePushRegistration,
+        refreshNotificationGateNow,
     };
 
     return (

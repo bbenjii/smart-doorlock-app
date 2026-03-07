@@ -1,38 +1,15 @@
 import React, { ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { ActivityIndicator, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
+import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
 import { AppContext } from "../../context/app-context";
-import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import SigninForm from "@/src/pages/settings/signInForm";
-import { useSettings } from "@/src/hooks/useSettings";
-
-const NOTIFICATION_EVENT_OPTIONS = [
-    { key: "FORCED_ENTRY", label: "Forced Entry" },
-    { key: "FAILED_AUTH", label: "Failed Auth Attempts" },
-    { key: "BATTERY_LOW", label: "Battery Low" },
-    { key: "DEVICE_OFFLINE", label: "Device Offline" },
-    { key: "DOORBELL_PRESSED", label: "Doorbell Pressed" },
-    { key: "WINDOW_SENSOR_TRIGGERED", label: "Window Sensor Triggered" },
-] as const;
-
-const DEFAULT_NOTIFICATION_EVENTS = NOTIFICATION_EVENT_OPTIONS.map((item) => item.key);
 
 export default function Settings() {
     const { user, deviceId, setDeviceId, signout, isDeviceConnected, authToken, apiBaseUrl } = useContext(AppContext);
     const router = useRouter();
-    const { settings, loading, updatingKeys, updateSetting, refetch } = useSettings();
     const [devices, setDevices] = useState<Array<{ deviceId: string; accessLevel: string }>>([]);
-    const [enabledNotifications, setEnabledNotifications] = useState<string[]>(DEFAULT_NOTIFICATION_EVENTS);
-    const [prefsLoading, setPrefsLoading] = useState(false);
-    const [prefsSaving, setPrefsSaving] = useState(false);
     const BASE_URL = apiBaseUrl || "https://smart-doorlock-server-851342133148.europe-west1.run.app/";
-
-    useFocusEffect(
-        useCallback(() => {
-            refetch();
-        }, [refetch]),
-    );
 
     const authHeaders = useCallback(() => {
         const h: Record<string, string> = {};
@@ -53,62 +30,6 @@ export default function Settings() {
     useEffect(() => {
         fetchDevices();
     }, [fetchDevices]);
-
-    const fetchNotificationPreferences = useCallback(async () => {
-        if (!authToken || !deviceId) return;
-        try {
-            setPrefsLoading(true);
-            const res = await fetch(`${BASE_URL}notifications/preferences/${deviceId}`, { headers: authHeaders() });
-            if (!res.ok) return;
-            const body = await res.json();
-            const values = Array.isArray(body?.enabledNotifications) ? body.enabledNotifications : DEFAULT_NOTIFICATION_EVENTS;
-            setEnabledNotifications(values);
-        } catch (_e) {
-            setEnabledNotifications(DEFAULT_NOTIFICATION_EVENTS);
-        } finally {
-            setPrefsLoading(false);
-        }
-    }, [authToken, deviceId, BASE_URL, authHeaders]);
-
-    useEffect(() => {
-        fetchNotificationPreferences();
-    }, [fetchNotificationPreferences]);
-
-    const saveNotificationPreferences = useCallback(async (values: string[]) => {
-        if (!authToken || !deviceId) return;
-        setPrefsSaving(true);
-        try {
-            await fetch(`${BASE_URL}notifications/preferences/${deviceId}`, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    ...authHeaders(),
-                },
-                body: JSON.stringify({ enabledNotifications: values }),
-            });
-        } finally {
-            setPrefsSaving(false);
-        }
-    }, [authToken, deviceId, BASE_URL, authHeaders]);
-
-    const handleToggle = async (key: keyof typeof settings, value: boolean) => {
-        try {
-            await updateSetting(key, value);
-            if (key === "notisEnabled") {
-                const next = value ? (enabledNotifications.length ? enabledNotifications : DEFAULT_NOTIFICATION_EVENTS) : [];
-                setEnabledNotifications(next);
-                await saveNotificationPreferences(next);
-            }
-        } catch (_e: any) {}
-    };
-
-    const toggleNotificationType = async (eventKey: string, enabled: boolean) => {
-        const next = enabled
-            ? Array.from(new Set([...enabledNotifications, eventKey]))
-            : enabledNotifications.filter((item) => item !== eventKey);
-        setEnabledNotifications(next);
-        await saveNotificationPreferences(next);
-    };
 
     return (
         <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
@@ -133,60 +54,17 @@ export default function Settings() {
                         </View>
                     </View>
 
-                    {/* Quick Settings */}
-                    <View>
-                        <Text style={styles.sectionTitle}>Quick Settings</Text>
-                        {loading ? (
-                            <View style={[styles.card, { alignItems: "center", paddingVertical: 24 }]}>
-                                <ActivityIndicator size="small" color="#2563eb" />
-                                <Text style={[styles.rowSubtitle, { marginTop: 8 }]}>Loading settings...</Text>
-                            </View>
-                        ) : (
-                            <>
-                                <View style={[styles.card, styles.divide]}>
-                                    <SettingToggle
-                                        icon={<CircleIcon label="N" color="#2563eb" />}
-                                        title="Notifications"
-                                        subtitle="Push alerts for events"
-                                        value={settings.notisEnabled}
-                                        onValueChange={(v) => handleToggle("notisEnabled", v)}
-                                        updating={updatingKeys.has("notisEnabled")}
-                                    />
-                                    {settings.notisEnabled ? (
-                                        <View style={{ paddingTop: 12 }}>
-                                            <Text style={styles.rowSubtitle}>Notification Types</Text>
-                                            <View style={{ marginTop: 8, gap: 8 }}>
-                                                {NOTIFICATION_EVENT_OPTIONS.map((item) => (
-                                                    <View key={item.key} style={styles.settingToggleRow}>
-                                                        <Text style={styles.rowTitle}>{item.label}</Text>
-                                                        {prefsLoading || prefsSaving ? (
-                                                            <ActivityIndicator size="small" color="#2563eb" />
-                                                        ) : (
-                                                            <Switch
-                                                                value={enabledNotifications.includes(item.key)}
-                                                                onValueChange={(v) => toggleNotificationType(item.key, v)}
-                                                            />
-                                                        )}
-                                                    </View>
-                                                ))}
-                                            </View>
-                                        </View>
-                                    ) : (
-                                        <View style={{ paddingTop: 12 }}>
-                                            <Text style={styles.rowSubtitle}>
-                                                Notifications are off for this device.
-                                            </Text>
-                                        </View>
-                                    )}
-                                </View>
-                            </>
-                        )}
-                    </View>
-
                     {/* System */}
                     <View>
                         <Text style={styles.sectionTitle}>System</Text>
                         <View style={[styles.card, styles.divide]}>
+                            <SettingLink
+                                icon={<CircleIcon label="N" color="#2563eb" />}
+                                title="Notifications"
+                                subtitle="Push alerts and notification types"
+                                onPress={() => router.push("/settings/notifications")}
+                            />
+
                             <SettingLink
                                 icon={<CircleIcon label="U" color="#2563eb" />}
                                 title="Manage Users"
@@ -263,28 +141,6 @@ export default function Settings() {
         </ScrollView>
     );
 }
-
-type SettingToggleProps = {
-    icon: ReactNode;
-    title: string;
-    subtitle: string;
-    value: boolean;
-    onValueChange: (value: boolean) => void;
-    updating?: boolean;
-};
-
-const SettingToggle = ({ icon, title, subtitle, value, onValueChange, updating }: SettingToggleProps) => (
-    <View style={styles.settingToggleRow}>
-        <View style={styles.rowCenter}>
-            {icon}
-            <View style={{ flexShrink: 1 }}>
-                <Text style={styles.rowTitle}>{title}</Text>
-                <Text style={styles.rowSubtitle}>{subtitle}</Text>
-            </View>
-        </View>
-        {updating ? <ActivityIndicator size="small" color="#2563eb" /> : <Switch value={value} onValueChange={onValueChange} />}
-    </View>
-);
 
 type SettingLinkProps = {
     icon: ReactNode;
