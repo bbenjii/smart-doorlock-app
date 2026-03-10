@@ -1,166 +1,336 @@
-import React, { useCallback, useContext, useEffect, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
 import { AppContext } from "../../context/app-context";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
+
+// ─── Tab / filter types ──────────────────────────────────────────────
+type TopTab = "all" | "events" | "logs";
+type EventSubFilter = "all" | "access" | "motion" | "alert";
+type EventCategory = "access" | "motion" | "alert" | "log";
 
 type EventItem = {
     id: string;
-    state: "LOCKED" | "UNLOCKED";
+    category: EventCategory;
     title: string;
-    timestamp: string;
-    rawTimestamp: string;
+    description: string;
+    timestamp: string;      // formatted display ("5m ago")
+    rawTimestamp: string;   // ISO string for sorting
     icon: any;
     tint: string;
 };
 
-const FETCH_TIMEOUT = 8000;
-const REALTIME_REFRESH_MS = 5000;
-const MAX_VISIBLE_LOGS = 8;
+const TOP_TABS: { label: string; value: TopTab }[] = [
+    { label: "All", value: "all" },
+    { label: "Events", value: "events" },
+    { label: "Logs", value: "logs" },
+];
 
-function buildApiUrl(baseUrl: string, path: string): string {
-    const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-    const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
-    return `${normalizedBase}${normalizedPath}`;
+const EVENT_SUB_FILTERS: { label: string; value: EventSubFilter }[] = [
+    { label: "All", value: "all" },
+    { label: "Access", value: "access" },
+    { label: "Motion", value: "motion" },
+    { label: "Alerts", value: "alert" },
+];
+
+// ─── Backend event types → EventItem mapping ────────────────────────
+const EVENT_TYPE_MAP: Record<string, { title: string; category: "access" | "motion" | "alert"; icon: any; tint: string }> = {
+    LOCKED: {
+        title: "Door Locked",
+        category: "access",
+        icon: require("../../assets/images/lock.png"),
+        tint: "#dc2626",
+    },
+    UNLOCKED: {
+        title: "Door Unlocked",
+        category: "access",
+        icon: require("../../assets/images/lock-open.png"),
+        tint: "#16a34a",
+    },
+    FAILED_AUTH: {
+        title: "Failed Access Attempt",
+        category: "alert",
+        icon: require("../../assets/images/bell.png"),
+        tint: "#ef4444",
+    },
+    MOTION_DETECTED: {
+        title: "Motion Detected",
+        category: "motion",
+        icon: require("../../assets/images/camera.png"),
+        tint: "#2563eb",
+    },
+    FORCED_ENTRY: {
+        title: "Forced Entry Detected",
+        category: "alert",
+        icon: require("../../assets/images/bell.png"),
+        tint: "#ef4444",
+    },
+    BATTERY_LOW: {
+        title: "Battery Low",
+        category: "alert",
+        icon: require("../../assets/images/radar.png"),
+        tint: "#f97316",
+    },
+    DEVICE_OFFLINE: {
+        title: "Device Offline",
+        category: "alert",
+        icon: require("../../assets/images/radar.png"),
+        tint: "#6b7280",
+    },
+    DEVICE_ONLINE: {
+        title: "Device Online",
+        category: "alert",
+        icon: require("../../assets/images/radar.png"),
+        tint: "#16a34a",
+    },
+    DOORBELL_PRESSED: {
+        title: "Doorbell Pressed",
+        category: "access",
+        icon: require("../../assets/images/bell.png"),
+        tint: "#f97316",
+    },
+    WINDOW_SENSOR_TRIGGERED: {
+        title: "Window Sensor Triggered",
+        category: "motion",
+        icon: require("../../assets/images/radar.png"),
+        tint: "#facc15",
+    },
+};
+
+// ─── Backend audit log actions → EventItem mapping ──────────────────
+const LOG_ACTION_MAP: Record<string, { title: string; icon: any; tint: string }> = {
+    COMMAND_ISSUED: {
+        title: "Lock Command",
+        icon: require("../../assets/images/lock.png"),
+        tint: "#2563eb",
+    },
+    COMMAND_DENIED: {
+        title: "Access Denied",
+        icon: require("../../assets/images/bell.png"),
+        tint: "#ef4444",
+    },
+    CLAIM_DEVICE: {
+        title: "Device Paired",
+        icon: require("../../assets/images/radar.png"),
+        tint: "#16a34a",
+    },
+    SETTINGS_UPDATED: {
+        title: "Settings Changed",
+        icon: require("../../assets/images/settings.png"),
+        tint: "#f97316",
+    },
+    USER_ADDED: {
+        title: "User Added",
+        icon: require("../../assets/images/lock-open.png"),
+        tint: "#16a34a",
+    },
+    USER_REMOVED: {
+        title: "User Removed",
+        icon: require("../../assets/images/lock.png"),
+        tint: "#dc2626",
+    },
+    ROLE_CHANGED: {
+        title: "Role Updated",
+        icon: require("../../assets/images/settings.png"),
+        tint: "#8b5cf6",
+    },
+};
+
+const HIDDEN_LOG_ACTIONS = new Set(["ACCESS_GRANTED", "ACCESS_UPDATED"]);
+
+// ─── Helpers ────────────────────────────────────────────────────────
+function formatRelativeTime(isoString: string): string {
+    const now = Date.now();
+    const then = new Date(isoString).getTime();
+    const diffMs = now - then;
+    if (diffMs < 0) return "just now";
+
+    const seconds = Math.floor(diffMs / 1000);
+    if (seconds < 60) return "just now";
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+
+    return new Date(isoString).toLocaleDateString();
 }
 
-function formatTimestamp(ts: string): string {
-    try {
-        const date = new Date(ts);
-        const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffMin = Math.floor(diffMs / 60000);
-        const diffHr = Math.floor(diffMs / 3600000);
-        const diffDay = Math.floor(diffMs / 86400000);
-
-        if (diffMin < 1) return "Just now";
-        if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? "" : "s"} ago`;
-        if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? "" : "s"} ago`;
-        if (diffDay < 7) return `${diffDay} day${diffDay === 1 ? "" : "s"} ago`;
-        return date.toLocaleDateString();
-    } catch {
-        return ts;
-    }
+function formatAuthMethod(raw: string): string {
+    return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function mapAuditLog(raw: any): EventItem | null {
-    const action = raw.action || "AUDIT";
-    const command = raw.details?.command;
-    if (action !== "COMMAND_ISSUED") return null;
-    if (command !== "LOCK" && command !== "UNLOCK") return null;
+function eventToItem(e: any): EventItem {
+    const mapped = EVENT_TYPE_MAP[e.eventType] ?? {
+        title: e.eventType,
+        category: "alert" as const,
+        icon: require("../../assets/images/bell.png"),
+        tint: "#6b7280",
+    };
 
-    const state = command === "LOCK" ? "LOCKED" : "UNLOCKED";
+    const descParts: string[] = [];
+    if (e.userId) descParts.push(e.userId);
+    if (e.authMethod) descParts.push(formatAuthMethod(e.authMethod));
+    const description = descParts.length > 0 ? descParts.join(" · ") : "System";
 
     return {
-        id: raw.logId || String(Math.random()),
-        state,
-        title: state === "LOCKED" ? "Door Locked" : "Door Unlocked",
-        timestamp: raw.timestamp ? formatTimestamp(raw.timestamp) : "—",
-        rawTimestamp: raw.timestamp ? String(raw.timestamp) : "",
-        icon: state === "LOCKED" ? require("../../assets/images/lock.png") : require("../../assets/images/lock-open.png"),
-        tint: state === "LOCKED" ? "#dc2626" : "#16a34a",
+        id: `evt-${e.eventId}`,
+        category: mapped.category,
+        title: mapped.title,
+        description,
+        timestamp: formatRelativeTime(e.timestamp),
+        rawTimestamp: e.timestamp ?? "",
+        icon: mapped.icon,
+        tint: mapped.tint,
     };
 }
 
-async function fetchWithTimeout(url: string, opts: RequestInit, timeoutMs: number): Promise<Response> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const mergedOpts = { ...opts, signal: controller.signal };
-    try {
-        return await fetch(url, mergedOpts);
-    } finally {
-        clearTimeout(timer);
+function logToItem(log: any): EventItem {
+    const mapped = LOG_ACTION_MAP[log.action] ?? {
+        title: log.action,
+        icon: require("../../assets/images/history.png"),
+        tint: "#6b7280",
+    };
+
+    let description = "";
+    if (log.action === "COMMAND_ISSUED" && log.details?.command) {
+        const cmd = log.details.command;
+        description = `${cmd === "LOCK" ? "Locked" : cmd === "UNLOCK" ? "Unlocked" : cmd} via app`;
+    } else if (log.action === "COMMAND_DENIED" && log.details?.command) {
+        description = `${log.details.command} · permission denied`;
+    } else if (log.action === "CLAIM_DEVICE") {
+        description = "New device paired";
+    } else if (log.actorUserId) {
+        description = `by ${log.actorUserId}`;
+    } else {
+        description = log.status === "SUCCESS" ? "Completed" : "Failed";
     }
+
+    return {
+        id: `log-${log.logId}`,
+        category: "log",
+        title: mapped.title,
+        description,
+        timestamp: formatRelativeTime(log.timestamp),
+        rawTimestamp: log.timestamp ?? "",
+        icon: mapped.icon,
+        tint: mapped.tint,
+    };
 }
 
+// ─── API ────────────────────────────────────────────────────────────
+const API_URL = "https://smart-doorlock-server-851342133148.europe-west1.run.app/";
+
 export default function Events() {
-    const { user, authToken, deviceId, apiBaseUrl } = useContext(AppContext);
+    const [topTab, setTopTab] = useState<TopTab>("all");
+    const [eventSubFilter, setEventSubFilter] = useState<EventSubFilter>("all");
+
+    const { user, deviceId, authToken, lastWsEvent } = useContext(AppContext);
     const router = useRouter();
 
-    const [events, setEvents] = useState<EventItem[]>([]);
+    const [items, setItems] = useState<EventItem[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    
-    const mergeAndSortEvents = useCallback((existing: EventItem[], incoming: EventItem[]) => {
-        const byId = new Map<string, EventItem>();
-        for (const item of existing) byId.set(item.id, item);
-        for (const item of incoming) byId.set(item.id, item);
 
-        const sorted = Array.from(byId.values()).sort((a, b) => {
-            const at = Date.parse(a.rawTimestamp);
-            const bt = Date.parse(b.rawTimestamp);
-            if (Number.isNaN(at) && Number.isNaN(bt)) return 0;
-            if (Number.isNaN(at)) return 1;
-            if (Number.isNaN(bt)) return -1;
-            return bt - at;
-        });
+    // Reset sub-filter when switching away from Events tab
+    useEffect(() => {
+        if (topTab !== "events") setEventSubFilter("all");
+    }, [topTab]);
 
-        const deduped: EventItem[] = [];
-        for (const item of sorted) {
-            const prev = deduped[deduped.length - 1];
-            if (prev && prev.state === item.state) continue;
-            deduped.push(item);
-        }
-
-        return deduped.slice(0, MAX_VISIBLE_LOGS);
-    }, []);
-
-    const headers = useCallback(() => {
-        const h: Record<string, string> = { "Content-Type": "application/json" };
-        if (authToken) h["Authorization"] = `Bearer ${authToken}`;
-        return h;
+    const authHeaders = useCallback(() => {
+        const headers: Record<string, string> = {};
+        if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+        return headers;
     }, [authToken]);
 
-    const fetchEvents = useCallback(async (background = false) => {
-        if (!deviceId || !authToken || !apiBaseUrl) {
-            setLoading(false);
-            return;
+    const fetchData = useCallback(async (showLoader: boolean = true) => {
+        if (!deviceId || !authToken) return;
+        if (showLoader) {
+            setLoading(true);
         }
-
-        if (!background) setLoading(true);
-        setError(null);
 
         try {
-            const url = buildApiUrl(apiBaseUrl, `devices/${deviceId}/logs?limit=100`);
-            const response = await fetchWithTimeout(url, { headers: headers() }, FETCH_TIMEOUT);
+            const [eventsRes, logsRes] = await Promise.all([
+                fetch(`${API_URL}devices/${deviceId}/events?limit=100`, { headers: authHeaders() }),
+                fetch(`${API_URL}devices/${deviceId}/logs?limit=100`, { headers: authHeaders() }),
+            ]);
 
-            if (!response.ok) {
-                const body = await response.json().catch(() => ({}));
-                throw new Error(body?.detail || "Failed to load events");
-            }
+            if (!eventsRes.ok) throw new Error(`Events: ${eventsRes.status}`);
+            if (!logsRes.ok) throw new Error(`Logs: ${logsRes.status}`);
 
-            const data = await response.json();
-            const mapped = (data.items || []).map(mapAuditLog).filter(Boolean) as EventItem[];
-            if (background) {
-                setEvents((prev) => mergeAndSortEvents(prev, mapped));
-            } else {
-                setEvents(mergeAndSortEvents([], mapped));
-            }
+            const eventsData = await eventsRes.json();
+            const logsData = await logsRes.json();
+
+            const eventItems = (eventsData.items ?? []).map(eventToItem);
+            const logItems = (logsData.items ?? [])
+                .filter((log: any) => !HIDDEN_LOG_ACTIONS.has(log?.action))
+                .map(logToItem);
+
+            // Merge and sort by raw timestamp descending
+            const all = [...eventItems, ...logItems].sort((a, b) =>
+                b.rawTimestamp.localeCompare(a.rawTimestamp),
+            );
+            setItems(all);
         } catch (e: any) {
-            if (e.name === "AbortError") {
-                setError("Server unreachable");
-            } else {
-                setError(e.message || "Failed to load events");
+            console.log("Events fetch error:", e);
+            if (showLoader) {
+                setItems([]);
             }
         } finally {
-            setLoading(false);
+            if (showLoader) {
+                setLoading(false);
+            }
         }
-    }, [deviceId, authToken, apiBaseUrl, headers, mergeAndSortEvents]);
+    }, [deviceId, authToken, authHeaders]);
 
     useEffect(() => {
-        setEvents([]);
-        fetchEvents(false);
-    }, [fetchEvents]);
+        fetchData();
+    }, [fetchData]);
 
+    // Keep list fresh while the Events screen is focused.
+    useFocusEffect(
+        useCallback(() => {
+            fetchData(false);
+            const interval = setInterval(() => {
+                fetchData(false);
+            }, 5000);
+
+            return () => clearInterval(interval);
+        }, [fetchData]),
+    );
+
+    // Prepend real-time events arriving via WebSocket
     useEffect(() => {
-        if (!deviceId || !authToken || !apiBaseUrl) return;
-        const timer = setInterval(() => {
-            fetchEvents(true);
-        }, REALTIME_REFRESH_MS);
+        if (!lastWsEvent) return;
+        const newItem = eventToItem(lastWsEvent);
+        setItems((prev) => {
+            // Avoid duplicates if the same event arrives twice
+            if (prev.some((i) => i.id === newItem.id)) return prev;
+            return [newItem, ...prev];
+        });
+        // Refresh from backend so related logs/system events appear without leaving the page.
+        fetchData(false);
+    }, [lastWsEvent, fetchData]);
 
-        return () => clearInterval(timer);
-    }, [deviceId, authToken, apiBaseUrl, fetchEvents]);
+    // ─── Filtering ─────────────────────────────────────────────────
+    const filteredItems = useMemo(() => {
+        if (topTab === "logs") {
+            return items.filter((i) => i.category === "log");
+        }
+        if (topTab === "events") {
+            const eventOnly = items.filter((i) => i.category !== "log");
+            if (eventSubFilter === "all") return eventOnly;
+            return eventOnly.filter((i) => i.category === eventSubFilter);
+        }
+        // "all" tab → everything
+        return items;
+    }, [topTab, eventSubFilter, items]);
 
+    // ─── Not logged in ──────────────────────────────────────────────
     if (!user) {
         return (
             <View style={[styles.screen, authStyles.container]}>
@@ -173,65 +343,123 @@ export default function Events() {
         );
     }
 
+    // ─── Render ─────────────────────────────────────────────────────
     return (
-        <View style={styles.screen}>
-            <View style={styles.stickyHeader}>
-                <View style={styles.header}>
+        <View style={authStyles.webInteractionLayer}>
+            <ScrollView
+                style={styles.screen}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+                pointerEvents="auto"
+            >
+                <View style={styles.content} pointerEvents="auto">
+            {/* Header */}
+            <View style={styles.header}>
                 <Text style={styles.title}>Activity Log</Text>
                 <Text style={styles.subtitle}>Track all security events</Text>
-                </View>
             </View>
 
-            <ScrollView contentContainerStyle={styles.scrollContent} style={{ flex: 1 }}>
-                {loading && (
-                    <View style={localStyles.centerCard}>
-                        <ActivityIndicator size="small" color="#2563eb" />
-                        <Text style={localStyles.centerText}>Loading logs...</Text>
-                    </View>
-                )}
+            {/* Top-level tabs: All | Events | Logs */}
+            <View style={styles.tabBar}>
+                {TOP_TABS.map((tab) => {
+                    const active = topTab === tab.value;
+                    return (
+                        <Pressable
+                            key={tab.value}
+                            onPress={() => setTopTab(tab.value)}
+                            style={[styles.tabItem, active && styles.tabItemActive]}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: active }}
+                        >
+                            <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                                {tab.label}
+                            </Text>
+                        </Pressable>
+                    );
+                })}
+            </View>
 
-                {!loading && error && (
-                    <View style={localStyles.errorBanner}>
-                        <Text style={localStyles.errorText}>{error}</Text>
-                        <TouchableOpacity onPress={() => fetchEvents(false)}>
-                            <Text style={localStyles.retryText}>Retry</Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
+            {/* Sub-filter chips — only visible on the Events tab */}
+            {topTab === "events" && (
+                <View style={styles.subFilters}>
+                    {EVENT_SUB_FILTERS.map((sf) => {
+                        const active = eventSubFilter === sf.value;
+                        return (
+                            <Pressable
+                                key={sf.value}
+                                onPress={() => setEventSubFilter(sf.value)}
+                                style={[styles.subFilterPill, active && styles.subFilterPillActive]}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: active }}
+                            >
+                                <Text style={[styles.subFilterText, active && styles.subFilterTextActive]}>
+                                    {sf.label}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            )}
 
-                {!loading && (
-                    <View style={styles.list}>
-                        {events.map((event) => (
-                            <View key={event.id} style={styles.card}>
-                                <View style={styles.cardIconWrapper}>
-                                    <View style={[styles.iconBadge, { backgroundColor: `${event.tint}1a` }]}>
-                                        <Image source={event.icon} style={[styles.cardIcon, { tintColor: event.tint }]} />
-                                    </View>
-                                </View>
-                                <View style={styles.cardContent}>
-                                    <View style={styles.cardHeader}>
-                                        <Text style={styles.cardTitle}>{event.title}</Text>
-                                    </View>
-                                    <Text style={styles.cardTimestamp}>{event.timestamp}</Text>
+            {/* Content */}
+            {loading ? (
+                <View style={styles.emptyState}>
+                    <ActivityIndicator size="small" color="#4f46e5" />
+                    <Text style={styles.emptySubtitle}>Loading activity...</Text>
+                </View>
+            ) : (
+                <View style={styles.list}>
+                    {filteredItems.map((item) => (
+                        <View key={item.id} style={styles.card}>
+                            <View style={styles.cardIconWrapper}>
+                                <View style={[styles.iconBadge, { backgroundColor: `${item.tint}1a` }]}>
+                                    <Image source={item.icon} style={[styles.cardIcon, { tintColor: item.tint }]} />
                                 </View>
                             </View>
-                        ))}
-
-                        {!events.length && !error && (
-                            <View style={styles.emptyState}>
-                                <Text style={styles.emptyTitle}>No logs yet</Text>
-                                <Text style={styles.emptySubtitle}>Logs will appear here when actions are recorded.</Text>
+                            <View style={styles.cardContent}>
+                                <View style={styles.cardHeader}>
+                                    <Text style={styles.cardTitle}>{item.title}</Text>
+                                    {item.category === "alert" && (
+                                        <View style={styles.alertBadge}>
+                                            <Text style={styles.alertText}>Alert</Text>
+                                        </View>
+                                    )}
+                                    {item.category === "log" && (
+                                        <View style={styles.logBadge}>
+                                            <Text style={styles.logText}>Log</Text>
+                                        </View>
+                                    )}
+                                </View>
+                                <Text style={styles.cardDescription}>{item.description}</Text>
+                                <Text style={styles.cardTimestamp}>{item.timestamp}</Text>
                             </View>
-                        )}
+                        </View>
+                    ))}
 
-                    </View>
-                )}
+                    {filteredItems.length === 0 && (
+                        <View style={styles.emptyState}>
+                            <Text style={styles.emptyTitle}>No activity yet</Text>
+                            <Text style={styles.emptySubtitle}>Try another filter or check back later.</Text>
+                        </View>
+                    )}
+                </View>
+            )}
+                </View>
             </ScrollView>
         </View>
     );
 }
 
 const authStyles = StyleSheet.create({
+    webInteractionLayer: {
+        flex: 1,
+        ...(Platform.OS === "web"
+            ? {
+                position: "relative",
+                zIndex: 9999,
+            }
+            : {}),
+    },
     container: {
         alignItems: "center",
         justifyContent: "center",
@@ -258,43 +486,5 @@ const authStyles = StyleSheet.create({
     buttonText: {
         color: "#fff",
         fontWeight: "700",
-    },
-});
-
-const localStyles = StyleSheet.create({
-    centerCard: {
-        alignItems: "center",
-        paddingVertical: 32,
-        borderWidth: 1,
-        borderColor: "#e5e7eb",
-        borderRadius: 12,
-        backgroundColor: "#fff",
-        gap: 8,
-    },
-    centerText: {
-        color: "#6b7280",
-        fontSize: 14,
-    },
-    errorBanner: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        backgroundColor: "#fef2f2",
-        borderWidth: 1,
-        borderColor: "#fecaca",
-        borderRadius: 10,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-    },
-    errorText: {
-        color: "#991b1b",
-        fontSize: 13,
-        flexShrink: 1,
-        marginRight: 12,
-    },
-    retryText: {
-        color: "#2563eb",
-        fontWeight: "600",
-        fontSize: 13,
     },
 });

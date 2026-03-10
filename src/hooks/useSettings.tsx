@@ -1,14 +1,12 @@
 import { useCallback, useContext, useEffect, useState } from "react";
-import { AppContext } from "@/src/context/app-context";
+import { AppContext } from "../context/app-context";
 
 export type DeviceSettings = {
     notisEnabled: boolean;
-    autoLockEnabled: boolean;
 };
 
 const DEFAULTS: DeviceSettings = {
     notisEnabled: true,
-    autoLockEnabled: true,
 };
 
 type SettingsKey = keyof DeviceSettings;
@@ -23,18 +21,14 @@ function fetchWithTimeout(url: string, opts: RequestInit, timeoutMs: number): Pr
     return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-function buildApiUrl(baseUrl: string, path: string): string {
-    const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-    const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
-    return `${normalizedBase}${normalizedPath}`;
-}
-
 export function useSettings() {
     const { authToken, deviceId, apiBaseUrl } = useContext(AppContext);
     const [settings, setSettings] = useState<DeviceSettings>(DEFAULTS);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [updatingKeys, setUpdatingKeys] = useState<Set<SettingsKey>>(new Set());
+
+    const BASE_URL = apiBaseUrl || "https://smart-doorlock-server-851342133148.europe-west1.run.app/";
 
     const headers = useCallback(() => {
         const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -43,7 +37,7 @@ export function useSettings() {
     }, [authToken]);
 
     const fetchSettings = useCallback(async () => {
-        if (!deviceId || !authToken || !apiBaseUrl) {
+        if (!deviceId || !authToken) {
             setSettings(DEFAULTS);
             setLoading(false);
             setError(null);
@@ -55,7 +49,7 @@ export function useSettings() {
 
         try {
             const response = await fetchWithTimeout(
-                buildApiUrl(apiBaseUrl, `settings/${deviceId}`),
+                `${BASE_URL}settings/${deviceId}`,
                 { method: "GET", headers: headers() },
                 FETCH_TIMEOUT_MS,
             );
@@ -68,16 +62,17 @@ export function useSettings() {
             const data = await response.json();
             setSettings({
                 notisEnabled: data.notisEnabled ?? DEFAULTS.notisEnabled,
-                autoLockEnabled: data.autoLockEnabled ?? DEFAULTS.autoLockEnabled,
             });
         } catch (e: any) {
-            console.log("Settings fetch error:", e);
-            setError(e.name === "AbortError" ? "Server unreachable" : (e.message || "Failed to load settings"));
+            if (e?.name !== "AbortError") {
+                console.log("Settings fetch error:", e);
+            }
+            setError(null);
             setSettings(DEFAULTS);
         } finally {
             setLoading(false);
         }
-    }, [deviceId, authToken, apiBaseUrl, headers]);
+    }, [deviceId, authToken, headers]);
 
     useEffect(() => {
         fetchSettings();
@@ -85,7 +80,7 @@ export function useSettings() {
 
     const updateSetting = useCallback(
         async (key: SettingsKey, value: boolean) => {
-            if (!deviceId || !apiBaseUrl) return;
+            if (!deviceId) return;
 
             const previousValue = settings[key];
             setSettings((prev) => ({ ...prev, [key]: value }));
@@ -93,7 +88,7 @@ export function useSettings() {
 
             try {
                 const response = await fetchWithTimeout(
-                    buildApiUrl(apiBaseUrl, `settings/${deviceId}/user`),
+                    `${BASE_URL}settings/${deviceId}/user`,
                     {
                         method: "PUT",
                         headers: headers(),
@@ -111,7 +106,6 @@ export function useSettings() {
                 if (data.settings) {
                     setSettings({
                         notisEnabled: data.settings.notisEnabled ?? DEFAULTS.notisEnabled,
-                        autoLockEnabled: data.settings.autoLockEnabled ?? DEFAULTS.autoLockEnabled,
                     });
                 }
             } catch (e: any) {
@@ -126,7 +120,7 @@ export function useSettings() {
                 });
             }
         },
-        [deviceId, apiBaseUrl, headers, settings],
+        [deviceId, headers, settings],
     );
 
     return {

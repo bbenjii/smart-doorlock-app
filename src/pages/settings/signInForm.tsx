@@ -1,7 +1,7 @@
 import React, {ReactNode, useState, useContext, useEffect} from "react";
 import { ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
-import {AppContext} from "@/src/context/app-context";
+import {AppContext} from "../../context/app-context";
 import {useFocusEffect} from "@react-navigation/native";
 
 

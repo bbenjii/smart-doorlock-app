@@ -1,27 +1,15 @@
 import React, { useContext, useState } from "react";
-import { ActivityIndicator, ScrollView, Switch, Text, View } from "react-native";
+import { ScrollView, Switch, Text, View } from "react-native";
 import styles from "./styles";
-import { AppContext } from "@/src/context/app-context";
-import { useSettings } from "@/src/hooks/useSettings";
+import { AppContext } from "../../context/app-context";
 
 export default function SecurityPrivacy() {
-    const { deviceId, autoLockEnabled, setAutoLockEnabled } = useContext(AppContext);
+    const { deviceId } = useContext(AppContext);
+    const [autoLock, setAutoLock] = useState(true);
     const [failedAttemptLock, setFailedAttemptLock] = useState(true);
-    const [settingsError, setSettingsError] = useState<string | null>(null);
-    const { settings, loading, updatingKeys, updateSetting } = useSettings();
 
     // For now hardcoded — will come from accessControl collection later
     const userRole = "owner";
-
-    const handleAutoLockToggle = async (value: boolean) => {
-        setSettingsError(null);
-        try {
-            await updateSetting("autoLockEnabled", value);
-            setAutoLockEnabled(value);
-        } catch (e: any) {
-            setSettingsError(e?.message || "Failed to update Auto-Lock");
-        }
-    };
 
     return (
         <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
@@ -38,25 +26,17 @@ export default function SecurityPrivacy() {
                         icon="A" color="#ef4444"
                         title="Auto-Lock"
                         subtitle="Automatically lock after 30 seconds"
-                        value={loading ? autoLockEnabled : settings.autoLockEnabled}
-                        onValueChange={handleAutoLockToggle}
-                        disabled={updatingKeys.has("autoLockEnabled")}
-                        updating={updatingKeys.has("autoLockEnabled")}
+                        value={autoLock}
+                        onValueChange={setAutoLock}
                     />
-                    {/* Security Settings 
                     <ToggleRow
                         icon="L" color="#8b5cf6"
                         title="Failed Attempt Lockout"
                         subtitle="Lock after 5 failed access attempts"
                         value={failedAttemptLock}
                         onValueChange={setFailedAttemptLock}
-                    /> */}
+                    />
                 </View>
-                {settingsError && (
-                    <Text style={{ color: "#b91c1c", fontSize: 13, marginTop: 8, marginLeft: 4 }}>
-                        {settingsError}
-                    </Text>
-                )}
             </View>
 
             {/* Device info */}
@@ -74,15 +54,8 @@ export default function SecurityPrivacy() {
     );
 }
 
-const ToggleRow = ({ icon, color, title, subtitle, value, onValueChange, disabled, updating }: {
-    icon: string;
-    color: string;
-    title: string;
-    subtitle: string;
-    value: boolean;
-    onValueChange: (v: boolean) => void;
-    disabled?: boolean;
-    updating?: boolean;
+const ToggleRow = ({ icon, color, title, subtitle, value, onValueChange }: {
+    icon: string; color: string; title: string; subtitle: string; value: boolean; onValueChange: (v: boolean) => void;
 }) => (
     <View style={styles.settingToggleRow}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 12, flexShrink: 1 }}>
@@ -94,10 +67,6 @@ const ToggleRow = ({ icon, color, title, subtitle, value, onValueChange, disable
                 <Text style={styles.rowSubtitle}>{subtitle}</Text>
             </View>
         </View>
-        {updating ? (
-            <ActivityIndicator size="small" color="#2563eb" />
-        ) : (
-            <Switch value={value} onValueChange={onValueChange} disabled={disabled} />
-        )}
+        <Switch value={value} onValueChange={onValueChange} />
     </View>
 );

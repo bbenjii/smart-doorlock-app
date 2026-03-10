@@ -18,12 +18,11 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     // const base_url = process.env.EXPO_PUBLIC_API_URL + '/';
     // let EXPO_PUBLIC_API_URL="http://172.30.20.117:8000/"
 
-    const base_url = EXPO_PUBLIC_API_URL.endsWith("/") ? EXPO_PUBLIC_API_URL : `${EXPO_PUBLIC_API_URL}/`;
+    const base_url = EXPO_PUBLIC_API_URL;
     const [isLocked, setIsLocked] = useState(false);
-    const [autoLockEnabled, setAutoLockEnabledState] = useState(true);
-    const autoLockDelayMs = 30000;
     const [toastVisible, setToastVisible] = useState(false);
     const [isDeviceConnected, setIsDeviceConnected] = useState(false);
+    const [lastWsEvent, setLastWsEvent] = useState<any>(null);
     const [toastContent, setToastContent] = useState<{
         title: string;
         message: string;
@@ -40,9 +39,23 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const wsRef = useRef<WebSocket | null>(null);
     const previousLockState = useRef<boolean | null>(null);
 
-    // NEW: reconnection state
+    // reconnection state
     const reconnectAttemptsRef = useRef(0);
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const notifPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const notifPrefsRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const refreshNotifGateRef = useRef<null | (() => Promise<void>)>(null);
+    const notifSeededRef = useRef(false);
+    const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+    const notifMasterEnabledRef = useRef(true);
+    const notifEnabledTypesRef = useRef<Set<string>>(new Set([
+        "FORCED_ENTRY",
+        "FAILED_AUTH",
+        "BATTERY_LOW",
+        "DEVICE_OFFLINE",
+        "DOORBELL_PRESSED",
+        "WINDOW_SENSOR_TRIGGERED",
+    ]));
 
     const clearReconnectTimeout = () => {
         if (reconnectTimeoutRef.current) {
@@ -59,43 +72,46 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         return headers;
     }, [authToken]);
 
-    const httpLock = async () => {
-        if (!deviceId) return;
-        const url = `${base_url}send-command/${deviceId}/LOCK`;
-        try {
-            const response = await fetch(url, { method: "POST", headers: authHeaders() });
-            const body = await response.json().catch(() => ({}));
-            if (response.ok && body?.ok) {
-                setIsLocked(true);
-                setTimeout(() => {
-                    httpGetLockStatus();
-                }, 1000);
-            }
-            return body;
-        } catch (e) {
-            console.log("Lock command error:", e);
-            throw e;
+    const ensurePushRegistration = useCallback(async () => {
+        // APNs push is disabled in local/free-team mode.
+        return;
+    }, []);
+
+    const refreshNotificationGateNow = useCallback(async () => {
+        if (refreshNotifGateRef.current) {
+            await refreshNotifGateRef.current();
         }
+    }, []);
+
+    const mapNotifTitle = (type?: string) => {
+        const t = (type || "").toUpperCase();
+        if (t === "FORCED_ENTRY") return "Forced Entry";
+        if (t === "FAILED_AUTH") return "Failed Access Attempts";
+        if (t === "BATTERY_LOW") return "Battery Low";
+        if (t === "DEVICE_OFFLINE") return "Device Offline";
+        if (t === "DOORBELL_PRESSED") return "Doorbell Pressed";
+        if (t === "WINDOW_SENSOR_TRIGGERED") return "Window Sensor Triggered";
+        return "Notification";
     };
 
-    const httpUnlock = async () => {
+    const mapNotifVariant = (type?: string): "danger" | "success" | "info" | "warning" | "default" => {
+        const t = (type || "").toUpperCase();
+        if (t === "FORCED_ENTRY" || t === "FAILED_AUTH") return "danger";
+        if (t === "BATTERY_LOW" || t === "DEVICE_OFFLINE") return "warning";
+        return "info";
+    };
+
+    const httpLock = () => {
+        if (!deviceId) return;
+        const url = `${base_url}send-command/${deviceId}/LOCK`;
+        return fetch(url, { method: "POST", headers: authHeaders() });
+    };
+
+    const httpUnlock = () => {
         if (!deviceId) return;
         const url = `${base_url}send-command/${deviceId}/UNLOCK`;
         console.log("Sending unlock command to:", url);
-        try {
-            const response = await fetch(url, { method: "POST", headers: authHeaders() });
-            const body = await response.json().catch(() => ({}));
-            if (response.ok && body?.ok) {
-                setIsLocked(false);
-                setTimeout(() => {
-                    httpGetLockStatus();
-                }, 1000);
-            }
-            return body;
-        } catch (e) {
-            console.log("Unlock command error:", e);
-            throw e;
-        }
+        return fetch(url, { method: "POST", headers: authHeaders() });
     };
 
     const httpGetLockStatus = () => {
@@ -151,46 +167,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             storedSession?.user?.device_id ||
             "smartlock_5C567740C86C";
         setDeviceId(fallbackDeviceId);
-
-        const savedAutoLockEnabled = AppStorage.getAutoLockEnabled();
-        if (savedAutoLockEnabled !== null) {
-            setAutoLockEnabledState(savedAutoLockEnabled);
-        }
     }, []);
 
-    useEffect(() => {
-        AppStorage.setAutoLockEnabled(autoLockEnabled);
-    }, [autoLockEnabled]);
-
-    const setAutoLockEnabled = useCallback((value: boolean) => {
-        setAutoLockEnabledState(value);
-    }, []);
-
-    const syncAutoLockSetting = useCallback(async () => {
-        if (!authToken || !deviceId) return;
-        try {
-            const response = await fetch(`${base_url}settings/${deviceId}`, {
-                method: "GET",
-                headers: {
-                    Authorization: `Bearer ${authToken}`,
-                    "Content-Type": "application/json",
-                },
-            });
-            if (!response.ok) return;
-            const data = await response.json();
-            if (typeof data?.autoLockEnabled === "boolean") {
-                setAutoLockEnabledState(data.autoLockEnabled);
-            }
-        } catch (e) {
-            console.log("Auto-lock sync error:", e);
-        }
-    }, [authToken, deviceId, base_url]);
-
-    useEffect(() => {
-        syncAutoLockSetting();
-    }, [syncAutoLockSetting]);
-
-    // ========== WebSocket connection + async reconnection ==========
+    // WebSocket connection + async reconnection
     const connectWebSocket = useCallback(() => {
         if (!deviceId) {
             console.log("WS: no deviceId, skipping connect");
@@ -237,6 +216,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
                     if (typeof data.status === "string") {
                         setIsLocked(data.status === "LOCKED");
                     }
+                } else if (data.type) {
+                    setLastWsEvent(data);
                 }
             } catch (e) {
                 console.log("WS message parse error:", e);
@@ -300,6 +281,117 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         };
     }, [deviceId, connectWebSocket]);
 
+    useEffect(() => {
+        if (notifPollTimerRef.current) {
+            clearInterval(notifPollTimerRef.current);
+            notifPollTimerRef.current = null;
+        }
+        if (notifPrefsRefreshTimerRef.current) {
+            clearInterval(notifPrefsRefreshTimerRef.current);
+            notifPrefsRefreshTimerRef.current = null;
+        }
+        notifSeededRef.current = false;
+        seenNotificationIdsRef.current = new Set();
+
+        if (!authToken || !deviceId) return;
+
+        const refreshNotificationGate = async () => {
+            try {
+                const [settingsRes, prefsRes] = await Promise.all([
+                    fetch(`${base_url}settings/${deviceId}`, {
+                        method: "GET",
+                        headers: authHeaders(),
+                    }),
+                    fetch(`${base_url}notifications/preferences/${deviceId}`, {
+                        method: "GET",
+                        headers: authHeaders(),
+                    }),
+                ]);
+
+                if (settingsRes.ok) {
+                    const settings = await settingsRes.json();
+                    notifMasterEnabledRef.current = Boolean(settings?.notisEnabled ?? true);
+                }
+
+                if (prefsRes.ok) {
+                    const prefs = await prefsRes.json();
+                    const values = Array.isArray(prefs?.enabledNotifications)
+                        ? prefs.enabledNotifications
+                        : [];
+                    notifEnabledTypesRef.current = new Set(values.map((v: string) => (v || "").toUpperCase()));
+                }
+            } catch (_e) {
+                // keep previous gate values on fetch failures
+            }
+        };
+        refreshNotifGateRef.current = refreshNotificationGate;
+
+        const pollNotifications = async () => {
+            try {
+                const res = await fetch(`${base_url}notifications/${deviceId}?limit=20`, {
+                    method: "GET",
+                    headers: authHeaders(),
+                });
+                if (!res.ok) return;
+                const body = await res.json();
+                const items = Array.isArray(body?.items) ? body.items : [];
+
+                if (!notifSeededRef.current) {
+                    for (const n of items) {
+                        const id = n?.notificationId || n?.id;
+                        if (id) seenNotificationIdsRef.current.add(String(id));
+                    }
+                    notifSeededRef.current = true;
+                    return;
+                }
+
+                const newItems: any[] = [];
+                for (const n of items) {
+                    const id = n?.notificationId || n?.id;
+                    if (!id) continue;
+                    const key = String(id);
+                    if (!seenNotificationIdsRef.current.has(key)) {
+                        newItems.push(n);
+                    }
+                    seenNotificationIdsRef.current.add(key);
+                }
+
+                if (newItems.length > 0) {
+                    if (!notifMasterEnabledRef.current) return;
+                    const newest = newItems.find((n) =>
+                        notifEnabledTypesRef.current.has(String(n?.type || "").toUpperCase()),
+                    );
+                    if (!newest) return;
+                    setToastContent({
+                        title: mapNotifTitle(newest?.type),
+                        message: newest?.message || "New alert",
+                        variant: mapNotifVariant(newest?.type),
+                    });
+                    setToastVisible(true);
+                }
+            } catch (_e) {
+                // silent; polling should not break app UX
+            }
+        };
+
+        refreshNotificationGate();
+        pollNotifications();
+        notifPrefsRefreshTimerRef.current = setInterval(refreshNotificationGate, 15000);
+        notifPollTimerRef.current = setInterval(pollNotifications, 5000);
+
+        return () => {
+            refreshNotifGateRef.current = null;
+            if (notifPollTimerRef.current) {
+                clearInterval(notifPollTimerRef.current);
+                notifPollTimerRef.current = null;
+            }
+            if (notifPrefsRefreshTimerRef.current) {
+                clearInterval(notifPrefsRefreshTimerRef.current);
+                notifPrefsRefreshTimerRef.current = null;
+            }
+        };
+    }, [authToken, deviceId, base_url, authHeaders]);
+
     const signout = () => {
         AppStorage.clearSession();
         setUser(null);
@@ -311,6 +403,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             wsRef.current.close();
             wsRef.current = null;
         }
+        if (notifPollTimerRef.current) {
+            clearInterval(notifPollTimerRef.current);
+            notifPollTimerRef.current = null;
+        }
+        if (notifPrefsRefreshTimerRef.current) {
+            clearInterval(notifPrefsRefreshTimerRef.current);
+            notifPrefsRefreshTimerRef.current = null;
+        }
+        notifSeededRef.current = false;
+        seenNotificationIdsRef.current = new Set();
         setIsDeviceConnected(false);
     };
 
@@ -410,20 +512,21 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const contextValue = {
         user,
         deviceId,
+        setDeviceId,
         apiBaseUrl: base_url,
         httpLock,
         httpUnlock,
         isLocked,
-        autoLockEnabled,
-        setAutoLockEnabled,
-        autoLockDelayMs,
         signin,
         signup,
         signout,
         authToken,
         isWebBrowser,
         cameraBaseUrl: getCameraBaseUrl(),
-        isDeviceConnected, 
+        isDeviceConnected,
+        lastWsEvent,
+        ensurePushRegistration,
+        refreshNotificationGateNow,
     };
 
     return (

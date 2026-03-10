@@ -1,40 +1,35 @@
-import React, { ReactNode, useState, useContext } from "react";
-import { ActivityIndicator, ScrollView, Switch, Text, TouchableOpacity, View } from "react-native";
+import React, { ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { ScrollView, Text, TouchableOpacity, View } from "react-native";
 import styles from "./styles";
-import { AppContext } from "@/src/context/app-context";
-import { useFocusEffect } from "@react-navigation/native";
+import { AppContext } from "../../context/app-context";
 import { useRouter } from "expo-router";
 import SigninForm from "@/src/pages/settings/signInForm";
-import { useSettings } from "@/src/hooks/useSettings";
 
 export default function Settings() {
-    const { user, deviceId, signout, isDeviceConnected } = useContext(AppContext);
+    const { user, deviceId, setDeviceId, signout, isDeviceConnected, authToken, apiBaseUrl } = useContext(AppContext);
     const router = useRouter();
-    const { settings, loading, error, updatingKeys, updateSetting, refetch } = useSettings();
-    const [settingsError, setSettingsError] = useState<string | null>(null);
-    const [retrying, setRetrying] = useState(false);
+    const [devices, setDevices] = useState<Array<{ deviceId: string; accessLevel: string }>>([]);
+    const BASE_URL = apiBaseUrl || "https://smart-doorlock-server-851342133148.europe-west1.run.app/";
 
-    useFocusEffect(() => {
-        refetch();
-    });
+    const authHeaders = useCallback(() => {
+        const h: Record<string, string> = {};
+        if (authToken) h.Authorization = `Bearer ${authToken}`;
+        return h;
+    }, [authToken]);
 
-    const handleToggle = async (key: keyof typeof settings, value: boolean) => {
-        setSettingsError(null);
+    const fetchDevices = useCallback(async () => {
+        if (!authToken) return;
         try {
-            await updateSetting(key, value);
-        } catch (e: any) {
-            setSettingsError(e.message || "Failed to update setting");
-        }
-    };
+            const res = await fetch(`${BASE_URL}devices/me`, { headers: authHeaders() });
+            if (!res.ok) return;
+            const body = await res.json();
+            setDevices((body.devices || []).map((d: any) => ({ deviceId: d.deviceId, accessLevel: d.accessLevel })));
+        } catch (_e) {}
+    }, [authToken, BASE_URL, authHeaders]);
 
-    const handleRetry = async () => {
-        setRetrying(true);
-        setSettingsError(null);
-        await refetch();
-        setRetrying(false);
-    };
-
-    const isOffline = !!error;
+    useEffect(() => {
+        fetchDevices();
+    }, [fetchDevices]);
 
     return (
         <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
@@ -59,59 +54,17 @@ export default function Settings() {
                         </View>
                     </View>
 
-                    {/* Quick Settings */}
-                    {/* we can add this back when we have more quick settings to show on the main page
-                    <View>
-                        <Text style={styles.sectionTitle}>Quick Settings</Text>
-                        {loading ? (
-                            <View style={[styles.card, { alignItems: "center", paddingVertical: 24 }]}>
-                                <ActivityIndicator size="small" color="#2563eb" />
-                                <Text style={[styles.rowSubtitle, { marginTop: 8 }]}>Loading settings...</Text>
-                            </View>
-                        ) : (
-                            <>
-                                {isOffline && (
-                                    <View style={offlineStyles.banner}>
-                                        <Text style={offlineStyles.bannerText}>{error}</Text>
-                                        <TouchableOpacity
-                                            onPress={handleRetry}
-                                            style={offlineStyles.updateButton}
-                                            disabled={retrying}
-                                        >
-                                            {retrying ? (
-                                                <ActivityIndicator size="small" color="#fff" />
-                                            ) : (
-                                                <Text style={offlineStyles.updateButtonText}>Update</Text>
-                                            )}
-                                        </TouchableOpacity>
-                                    </View>
-                                )}
-
-                                <View style={[styles.card, styles.divide]}>
-                                    <SettingToggle
-                                        icon={<CircleIcon label="N" color="#2563eb" />}
-                                        title="Notifications"
-                                        subtitle="Push alerts for events"
-                                        value={settings.notisEnabled}
-                                        onValueChange={(v) => handleToggle("notisEnabled", v)}
-                                        updating={updatingKeys.has("notisEnabled")}
-                                        disabled={isOffline}
-                                    />
-                                </View>
-                            </>
-                        )}
-
-                        {settingsError && (
-                            <Text style={{ color: "#b91c1c", fontSize: 13, marginTop: 6, marginLeft: 4 }}>
-                                {settingsError}
-                            </Text>
-                        )}
-                    </View>
-                        */}
                     {/* System */}
                     <View>
                         <Text style={styles.sectionTitle}>System</Text>
                         <View style={[styles.card, styles.divide]}>
+                            <SettingLink
+                                icon={<CircleIcon label="N" color="#2563eb" />}
+                                title="Notifications"
+                                subtitle="Push alerts and notification types"
+                                onPress={() => router.push("/settings/notifications")}
+                            />
+
                             <SettingLink
                                 icon={<CircleIcon label="U" color="#2563eb" />}
                                 title="Manage Users"
@@ -154,6 +107,30 @@ export default function Settings() {
                         <InfoRow label="Device ID" value={deviceId || "—"} />
                     </View>
 
+                    {devices.length > 1 ? (
+                        <View style={styles.card}>
+                            <Text style={styles.sectionTitle}>Switch Device</Text>
+                            <View style={{ gap: 8, marginTop: 8 }}>
+                                {devices.map((d) => (
+                                    <TouchableOpacity
+                                        key={d.deviceId}
+                                        style={[
+                                            styles.linkRow,
+                                            deviceId === d.deviceId ? { borderColor: "#2563eb", borderWidth: 1, borderRadius: 10 } : null,
+                                        ]}
+                                        onPress={() => setDeviceId?.(d.deviceId)}
+                                    >
+                                        <View>
+                                            <Text style={styles.rowTitle}>{d.deviceId}</Text>
+                                            <Text style={styles.rowSubtitle}>{d.accessLevel}</Text>
+                                        </View>
+                                        <Text style={styles.chevronText}>{deviceId === d.deviceId ? "✓" : "›"}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+                    ) : null}
+
                     <TouchableOpacity style={[styles.button, styles.buttonGhost]} onPress={signout} activeOpacity={0.7}>
                         <Text style={styles.buttonGhostText}>Sign Out</Text>
                     </TouchableOpacity>
@@ -164,29 +141,6 @@ export default function Settings() {
         </ScrollView>
     );
 }
-
-type SettingToggleProps = {
-    icon: ReactNode;
-    title: string;
-    subtitle: string;
-    value: boolean;
-    onValueChange: (value: boolean) => void;
-    updating?: boolean;
-    disabled?: boolean;
-};
-
-const SettingToggle = ({ icon, title, subtitle, value, onValueChange, updating, disabled }: SettingToggleProps) => (
-    <View style={[styles.settingToggleRow, disabled && { opacity: 0.5 }]}>
-        <View style={styles.rowCenter}>
-            {icon}
-            <View style={{ flexShrink: 1 }}>
-                <Text style={styles.rowTitle}>{title}</Text>
-                <Text style={styles.rowSubtitle}>{subtitle}</Text>
-            </View>
-        </View>
-        {updating ? <ActivityIndicator size="small" color="#2563eb" /> : <Switch value={value} onValueChange={onValueChange} disabled={disabled} />}
-    </View>
-);
 
 type SettingLinkProps = {
     icon: ReactNode;
@@ -221,37 +175,3 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
         <Text style={styles.infoValue}>{value}</Text>
     </View>
 );
-
-const offlineStyles = {
-    banner: {
-        flexDirection: "row" as const,
-        alignItems: "center" as const,
-        justifyContent: "space-between" as const,
-        backgroundColor: "#fef2f2",
-        borderWidth: 1,
-        borderColor: "#fecaca",
-        borderRadius: 10,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-        marginBottom: 8,
-    },
-    bannerText: {
-        color: "#991b1b",
-        fontSize: 13,
-        flexShrink: 1,
-        marginRight: 12,
-    },
-    updateButton: {
-        backgroundColor: "#2563eb",
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 8,
-        minWidth: 72,
-        alignItems: "center" as const,
-    },
-    updateButtonText: {
-        color: "#fff",
-        fontWeight: "700" as const,
-        fontSize: 13,
-    },
-};

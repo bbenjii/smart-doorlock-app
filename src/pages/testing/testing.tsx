@@ -13,7 +13,7 @@ import {
 } from "react-native";
 
 import {useBLE} from "@/src/context/ble-context";
-import {AppContext} from "@/src/context/app-context";
+import {AppContext} from "../../context/app-context";
 
 const base_url = "https://0dae5b628806.ngrok-free.app/";
 
