@@ -265,7 +265,7 @@ const CameraFeed = ({ isCallActive }: { isCallActive: boolean }) => {
     const {cameraBaseUrl, isWebBrowser, authToken} = useContext(AppContext);
     const [source, setSource] = useState("");
     const [webViewKey, setWebViewKey] = useState(0);
-    const upscale = 2;
+    const upscale = 1;
     
     useFocusEffect(
         useCallback(() => {
@@ -288,16 +288,21 @@ const CameraFeed = ({ isCallActive }: { isCallActive: boolean }) => {
         <View style={{ backgroundColor: "black" }}>
             <View
                 style={{
-                    marginHorizontal: 16,
-                    marginVertical: 16,
-                    borderRadius: 12,
+                    // marginHorizontal: 16,
+                    // marginVertical: 16,
+                    // borderRadius: 12,
                     overflow: "hidden",
                     alignSelf: "center",
                     width: "100%",
                     maxWidth: isLargeScreen ? 900 : "100%",
                 }}
             >
-                <View style={{ width: "100%", flex: 3, aspectRatio: 16 / 9, overflow: "hidden" }}>
+                <View style={{ 
+                    width: "100%", 
+                    flex: 3, 
+                    aspectRatio: 16 / 9, 
+                    overflow: "hidden" 
+                }}>
                     {source ? (
                         isWebBrowser ?
                             <img
