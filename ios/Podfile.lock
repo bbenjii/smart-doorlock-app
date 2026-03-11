@@ -3,7 +3,7 @@ PODS:
   - DoubleConversion (1.1.6)
   - EXApplication (7.0.8):
     - ExpoModulesCore
-  - EXConstants (18.0.13):
+  - EXConstants (18.0.10):
     - ExpoModulesCore
   - EXJSONUtils (0.15.0)
   - EXManifests (1.0.9):
@@ -3471,7 +3471,7 @@ SPEC CHECKSUMS:
   boost: 7e761d76ca2ce687f7cc98e698152abd03a18f90
   DoubleConversion: cb417026b2400c8f53ae97020b2be961b59470cb
   EXApplication: 1e98d4b1dccdf30627f92917f4b2c5a53c330e5f
-  EXConstants: fce59a631a06c4151602843667f7cfe35f81e271
+  EXConstants: fd688cef4e401dcf798a021cfb5d87c890c30ba3
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
   EXManifests: 26e15640538c3d5ef028077ebcaf004b744d4932
   EXNotifications: 9eec98712cc814ceff916d876cb53859003b0597

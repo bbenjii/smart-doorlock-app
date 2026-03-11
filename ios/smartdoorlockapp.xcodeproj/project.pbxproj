@@ -358,7 +358,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = F6DR8UKQUQ;
+				DEVELOPMENT_TEAM = SY32Q28S84;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -377,7 +377,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = com.anonymous.smartdoorlockapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.benollomo.smartdoorlockapp;
 				PRODUCT_NAME = smartdoorlockapp;
 				SWIFT_OBJC_BRIDGING_HEADER = "smartdoorlockapp/smartdoorlockapp-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -397,7 +397,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = F6DR8UKQUQ;
+				DEVELOPMENT_TEAM = SY32Q28S84;
 				INFOPLIST_FILE = smartdoorlockapp/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -411,7 +411,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = com.anonymous.smartdoorlockapp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.benollomo.smartdoorlockapp;
 				PRODUCT_NAME = smartdoorlockapp;
 				SWIFT_OBJC_BRIDGING_HEADER = "smartdoorlockapp/smartdoorlockapp-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
