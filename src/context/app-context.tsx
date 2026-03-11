@@ -6,8 +6,8 @@ import { Platform } from "react-native";
 
 export const AppContext = createContext<any>(null);
 
-// const EXPO_PUBLIC_API_URL="http://192.168.2.208:8000/"
-const EXPO_PUBLIC_API_URL="https://smart-doorlock-server-851342133148.europe-west1.run.app/"
+const EXPO_PUBLIC_API_URL="http://192.168.2.208:8000/"
+// const EXPO_PUBLIC_API_URL="https://smart-doorlock-server-851342133148.europe-west1.run.app/"
 
 // const EXPO_PUBLIC_API_URL=""
 
